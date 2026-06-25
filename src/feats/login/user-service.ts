@@ -20,6 +20,13 @@ export class UserService {
   constructor(private ctx: Context) {}
 
   /**
+   * Auto-migrate existing JSON users to database on startup.
+   */
+  async init() {
+    await this.ensureMigration();
+  }
+
+  /**
    * Get the TypeORM repository if database is available.
    */
   private get repo(): Repository<User> | undefined {
