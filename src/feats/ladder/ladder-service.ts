@@ -255,6 +255,86 @@ export class LadderService {
       }
     });
 
+    // API: /api/ladder/card-stats — 卡片使用率/胜率统计
+    this.ctx.router.get('/api/ladder/card-stats', async (koaCtx) => {
+      try {
+      const database = this.ctx.database;
+      if (!database) {
+        koaCtx.body = { error: '数据库未启用' };
+        return;
+      }
+
+      const limit = Math.min(
+        Math.max(parseInt(String(koaCtx.query.limit || '30'), 10) || 30, 1),
+        100,
+      );
+
+      const recordRepo = database.getRepository(DuelRecordEntity);
+
+      // 获取最近N场M#比赛房的已结束决斗
+      const records = await recordRepo
+        .createQueryBuilder('record')
+        .leftJoinAndSelect('record.players', 'player')
+        .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
+        .andWhere('record.winReason IS NOT NULL')
+        .orderBy('record.endTime', 'DESC')
+        .take(500)
+        .getMany();
+
+      // 统计每张卡：出现在胜者卡组次数 / 出现在所有卡组次数
+      const cardWins = new Map<number, number>();
+      const cardTotal = new Map<number, number>();
+
+      for (const record of records) {
+        for (const player of record.players) {
+          const deck = decodeDeckBase64(
+            player.ingameDeckBuffer || player.currentDeckBuffer,
+            player.ingameDeckMainc ?? player.currentDeckMainc ?? 0,
+          );
+          const allCards = [
+            ...(deck.main || []),
+            ...(deck.extra || []),
+            ...(deck.side || []),
+          ];
+          const uniqueCards = new Set(allCards);
+          for (const cid of uniqueCards) {
+            cardTotal.set(cid, (cardTotal.get(cid) || 0) + 1);
+            if (player.winner) {
+              cardWins.set(cid, (cardWins.get(cid) || 0) + 1);
+            }
+          }
+        }
+      }
+
+      const MIN_TOTAL = 3; // 至少出现3次才计入胜率排行
+      const cardList: Array<{ cardId: number; wins: number; total: number; winRate: number }> = [];
+      for (const [cid, total] of cardTotal) {
+        const wins = cardWins.get(cid) || 0;
+        cardList.push({ cardId: cid, wins, total, winRate: total > 0 ? wins / total : 0 });
+      }
+
+      const topUsed = [...cardList]
+        .sort((a, b) => b.wins - a.wins || b.total - a.total)
+        .slice(0, limit)
+        .map((c) => ({ ...c, winRate: (c.winRate * 100).toFixed(1) + '%' }));
+
+      const topWinRate = [...cardList]
+        .filter((c) => c.total >= MIN_TOTAL)
+        .sort((a, b) => b.winRate - a.winRate || b.wins - a.wins)
+        .slice(0, limit)
+        .map((c) => ({ ...c, winRate: (c.winRate * 100).toFixed(1) + '%' }));
+
+      koaCtx.body = {
+        totalDuels: records.length,
+        topUsed,
+        topWinRate,
+      };
+      } catch (err) {
+        koaCtx.status = 500;
+        koaCtx.body = { error: (err as Error).message };
+      }
+    });
+
     // /winnerdeck [玩家名] - 查看天梯胜者卡组
     this.koishiContextService
       .attachI18n('winnerdeck', { description: '查看天梯胜者卡组' });
