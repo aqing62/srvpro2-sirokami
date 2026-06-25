@@ -3,6 +3,9 @@ import { Context } from '../../app';
 import { OnRoomWin, OnRoomGameStart, Room } from '../../room';
 import { KoishiContextService } from '../../koishi/koishi-context-service';
 import { PlayerRating } from './player-rating.entity';
+import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
+import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
+import { decodeDeckBase64 } from '../cloud-replay/utility';
 
 const K_FACTOR = 32;
 
@@ -171,6 +174,161 @@ export class LadderService {
         })),
         total: players.length,
       };
+    });
+
+    // API: /api/ladder/decks — 天梯胜者卡组
+    this.ctx.router.get('/api/ladder/decks', async (koaCtx) => {
+      try {
+      const database = this.ctx.database;
+      if (!database) {
+        koaCtx.body = { error: '数据库未启用' };
+        return;
+      }
+
+      const player = String(koaCtx.query.player || '').trim();
+      if (!player) {
+        koaCtx.body = { error: '请提供 player 参数' };
+        return;
+      }
+
+      const limit = Math.min(
+        Math.max(parseInt(String(koaCtx.query.limit || '10'), 10) || 10, 1),
+        50,
+      );
+
+      const recordRepo = database.getRepository(DuelRecordEntity);
+
+      // 查询该玩家在天梯房中的胜局记录
+      const records = await recordRepo
+        .createQueryBuilder('record')
+        .leftJoinAndSelect('record.players', 'player')
+        .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
+        .andWhere('record.winReason IS NOT NULL')
+        .andWhere(
+          'EXISTS (' +
+            'SELECT 1 FROM duel_record_player winner ' +
+            'WHERE winner."duelRecordId" = record.id ' +
+            'AND winner.winner = true ' +
+            'AND (winner.name = :playerName OR winner."realName" = :playerName2)' +
+            ')',
+          { playerName: player, playerName2: player },
+        )
+        .orderBy('record.endTime', 'DESC')
+        .take(limit)
+        .getMany();
+
+      const decks = records.map((record) => {
+        const winnerPlayer = record.players.find((p) => p.winner);
+        const opponent = record.players.find((p) => !p.winner);
+        const deck = winnerPlayer
+          ? decodeDeckBase64(
+              winnerPlayer.ingameDeckBuffer || winnerPlayer.currentDeckBuffer,
+              winnerPlayer.ingameDeckMainc ?? winnerPlayer.currentDeckMainc ?? 0,
+            )
+          : null;
+
+        return {
+          replayId: Number(record.id),
+          roomName: record.name,
+          time: record.endTime,
+          winner: winnerPlayer?.name || '',
+          opponent: opponent?.name || '',
+          score: winnerPlayer?.score || 0,
+          deck: deck
+            ? {
+                main: deck.main || [],
+                extra: deck.extra || [],
+                side: deck.side || [],
+              }
+            : null,
+        };
+      });
+
+      koaCtx.body = {
+        player,
+        total: decks.length,
+        decks,
+      };
+      } catch (err) {
+        koaCtx.status = 500;
+        koaCtx.body = { error: (err as Error).message };
+      }
+    });
+
+    // /winnerdeck [玩家名] - 查看天梯胜者卡组
+    this.koishiContextService
+      .attachI18n('winnerdeck', { description: '查看天梯胜者卡组' });
+    koishi.command('winnerdeck [...args]', '查看天梯胜者卡组').action(async ({ session }) => {
+      const ctx = this.koishiContextService.resolveCommandContext(session);
+      if (!ctx) return;
+      const { client } = ctx;
+
+      const args = (session.content || '').trim();
+      const targetName = args.replace(/^\/winnerdeck[\s]*/i, '').trim()
+        || client.displayName
+        || client.accountName
+        || '';
+
+      if (!this.ctx.database) {
+        await client.sendChat('数据库未启用', ChatColor.RED);
+        return;
+      }
+
+      const recordRepo = this.ctx.database.getRepository(DuelRecordEntity);
+
+      const records = await recordRepo
+        .createQueryBuilder('record')
+        .leftJoinAndSelect('record.players', 'player')
+        .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
+        .andWhere('record.winReason IS NOT NULL')
+        .andWhere(
+          'EXISTS (' +
+            'SELECT 1 FROM duel_record_player winner ' +
+            'WHERE winner."duelRecordId" = record.id ' +
+            'AND winner.winner = true ' +
+            'AND (winner.name = :playerName OR winner."realName" = :playerName2)' +
+            ')',
+          { playerName: targetName, playerName2: targetName },
+        )
+        .orderBy('record.endTime', 'DESC')
+        .take(3)
+        .getMany();
+
+      if (!records.length) {
+        await client.sendChat(
+          `玩家 "${targetName}" 暂未在天梯房获胜`,
+          ChatColor.YELLOW,
+        );
+        return;
+      }
+
+      for (const record of records) {
+        const winnerPlayer = record.players.find((p) => p.winner);
+        const opponent = record.players.find((p) => !p.winner);
+        const deck = winnerPlayer
+          ? decodeDeckBase64(
+              winnerPlayer.ingameDeckBuffer || winnerPlayer.currentDeckBuffer,
+              winnerPlayer.ingameDeckMainc ?? winnerPlayer.currentDeckMainc ?? 0,
+            )
+          : null;
+
+        const time = new Date(record.endTime);
+        const timeStr = `${time.getMonth() + 1}/${time.getDate()} ${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`;
+        const lines = [
+          `=== ${winnerPlayer?.name || '?'} VS ${opponent?.name || '?'} (${timeStr}) ===`,
+          deck
+            ? `主卡组(${deck.main?.length || 0}): ${(deck.main || []).join(', ')}`
+            : '',
+          deck && deck.extra?.length
+            ? `额外(${deck.extra.length}): ${deck.extra.join(', ')}`
+            : '',
+          deck && deck.side?.length
+            ? `副卡组(${deck.side.length}): ${deck.side.join(', ')}`
+            : '',
+        ].filter(Boolean);
+
+        await client.sendChat(lines.join('\n'), ChatColor.GREEN);
+      }
     });
   }
 
