@@ -223,6 +223,7 @@ export class LadderService {
             'WHERE winner."duelRecordId" = record.id ' +
             'AND winner.winner = true ' +
             'AND (winner.name = :playerName OR winner."realName" = :playerName2 OR winner.name LIKE :playerLike OR winner."realName" LIKE :playerLike2)' +
+            'AND EXISTS (SELECT 1 FROM player_rating pr WHERE pr."accountName" = winner.name)' +
             ')',
           { playerName: player, playerName2: player, playerLike: player + '%', playerLike2: player + '%' },
         )
@@ -347,7 +348,7 @@ export class LadderService {
       });
 
       const topUsed = [...cardList]
-        .sort((a, b) => b.wins - a.wins || b.total - a.total)
+        .sort((a, b) => b.total - a.total || b.wins - a.wins)
         .slice(0, limit)
         .map(toResult);
 
@@ -400,6 +401,7 @@ export class LadderService {
             'WHERE winner."duelRecordId" = record.id ' +
             'AND winner.winner = true ' +
             'AND (winner.name = :playerName OR winner."realName" = :playerName2 OR winner.name LIKE :playerLike OR winner."realName" LIKE :playerLike2)' +
+            'AND EXISTS (SELECT 1 FROM player_rating pr WHERE pr."accountName" = winner.name)' +
             ')',
           { playerName: targetName, playerName2: targetName, playerLike: targetName + '%', playerLike2: targetName + '%' },
         )
