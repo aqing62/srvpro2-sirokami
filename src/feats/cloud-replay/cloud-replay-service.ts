@@ -380,10 +380,14 @@ export class CloudReplayService {
     client: Client,
     options: SaveDuelRecordOptions,
   ) {
+    const recordName = client.accountName || client.name;
+    const recordRealName = client.accountName
+      ? (client.displayName || client.accountName)
+      : (client.name_vpass || client.name);
     return {
-      name: client.name,
+      name: recordName,
       pos: client.pos,
-      realName: client.name_vpass || client.name,
+      realName: recordRealName,
       ip: client.ip || '',
       clientKey: this.clientKeyProvider.getClientKey(client),
       isFirst: resolveIsFirstPlayer(room, client, options.swapped),

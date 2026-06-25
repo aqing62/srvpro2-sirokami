@@ -209,9 +209,9 @@ export class LadderService {
             'SELECT 1 FROM duel_record_player winner ' +
             'WHERE winner."duelRecordId" = record.id ' +
             'AND winner.winner = true ' +
-            'AND (winner.name = :playerName OR winner."realName" = :playerName2)' +
+            'AND (winner.name = :playerName OR winner."realName" = :playerName2 OR winner.name LIKE :playerLike OR winner."realName" LIKE :playerLike2)' +
             ')',
-          { playerName: player, playerName2: player },
+          { playerName: player, playerName2: player, playerLike: player + '%', playerLike2: player + '%' },
         )
         .orderBy('record.endTime', 'DESC')
         .take(limit)
@@ -366,9 +366,9 @@ export class LadderService {
             'SELECT 1 FROM duel_record_player winner ' +
             'WHERE winner."duelRecordId" = record.id ' +
             'AND winner.winner = true ' +
-            'AND (winner.name = :playerName OR winner."realName" = :playerName2)' +
+            'AND (winner.name = :playerName OR winner."realName" = :playerName2 OR winner.name LIKE :playerLike OR winner."realName" LIKE :playerLike2)' +
             ')',
-          { playerName: targetName, playerName2: targetName },
+          { playerName: targetName, playerName2: targetName, playerLike: targetName + '%', playerLike2: targetName + '%' },
         )
         .orderBy('record.endTime', 'DESC')
         .take(3)
