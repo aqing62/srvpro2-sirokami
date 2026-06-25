@@ -11,7 +11,7 @@ export const DefaultHostinfo: HostInfo = {
   start_lp: 8000,
   start_hand: 5,
   draw_count: 1,
-  time_limit: 240,
+  time_limit: 300,
   no_watch: 0,
   auto_death: 0,
 };

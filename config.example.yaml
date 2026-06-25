@@ -140,6 +140,6 @@ hostinfoNoShuffleDeck: 0
 hostinfoStartLp: 8000
 hostinfoStartHand: 5
 hostinfoDrawCount: 1
-hostinfoTimeLimit: 240
+hostinfoTimeLimit: 300
 hostinfoNoWatch: 0
 hostinfoAutoDeath: 0
