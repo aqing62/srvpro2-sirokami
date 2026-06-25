@@ -323,23 +323,39 @@ export class LadderService {
         }
       }
 
-      const MIN_TOTAL = 20; // 至少出现20次才计入胜率排行
-      const cardList: Array<{ cardId: number; wins: number; total: number; winRate: number }> = [];
+      const totalDecks = records.length * 2; // 每场2个卡组
+      const MIN_TOTAL = 20;
+
+      const cardList: Array<{ cardId: number; wins: number; total: number; winRate: number; usageRate: number }> = [];
       for (const [cid, total] of cardTotal) {
         const wins = cardWins.get(cid) || 0;
-        cardList.push({ cardId: cid, wins, total, winRate: total > 0 ? wins / total : 0 });
+        cardList.push({
+          cardId: cid,
+          wins,
+          total,
+          winRate: total > 0 ? wins / total : 0,
+          usageRate: totalDecks > 0 ? total / totalDecks : 0,
+        });
       }
+
+      const toResult = (c: typeof cardList[0]) => ({
+        cardId: c.cardId,
+        wins: c.wins,
+        total: c.total,
+        usageRate: (c.usageRate * 100).toFixed(1) + '%',
+        winRate: (c.winRate * 100).toFixed(1) + '%',
+      });
 
       const topUsed = [...cardList]
         .sort((a, b) => b.wins - a.wins || b.total - a.total)
         .slice(0, limit)
-        .map((c) => ({ ...c, winRate: (c.winRate * 100).toFixed(1) + '%' }));
+        .map(toResult);
 
       const topWinRate = [...cardList]
         .filter((c) => c.total >= MIN_TOTAL)
         .sort((a, b) => b.winRate - a.winRate || b.wins - a.wins)
         .slice(0, limit)
-        .map((c) => ({ ...c, winRate: (c.winRate * 100).toFixed(1) + '%' }));
+        .map(toResult);
 
       koaCtx.body = {
         totalDuels: records.length,
