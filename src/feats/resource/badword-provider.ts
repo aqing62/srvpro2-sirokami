@@ -1,0 +1,301 @@
+import { ChatColor, YGOProCtosChat } from 'ygopro-msg-encode';
+import { Context } from '../../app';
+import { Client } from '../../client';
+import { Room, RoomManager } from '../../room';
+import { escapeRegExp } from '../../utility/escape-regexp';
+import { ValueContainer } from '../../utility/value-container';
+import { OnClientBadwordViolation } from '../random-duel/random-duel-events';
+import { BaseResourceProvider } from './base-resource-provider';
+import { isObjectRecord } from './resource-util';
+import { BadwordsData, EMPTY_BADWORDS_DATA } from './types';
+
+declare module '../../room' {
+  interface Room {
+    checkChatBadword?: boolean;
+  }
+}
+
+export interface BadwordCheckResult {
+  level: number;
+  message?: string;
+  match?: string;
+}
+
+export class BadwordTextCheck extends ValueContainer<BadwordCheckResult> {
+  constructor(
+    public text: string,
+    public room?: Room,
+    public client?: Client,
+  ) {
+    super({ level: -1 });
+  }
+
+  asLevel(level: number) {
+    return this.use({
+      ...this.value,
+      level,
+    });
+  }
+
+  asMessage(message?: string) {
+    return this.use({
+      ...this.value,
+      message,
+    });
+  }
+}
+
+export class BadwordProvider extends BaseResourceProvider<BadwordsData> {
+  enabled = this.ctx.config.getBoolean('ENABLE_BADWORDS');
+
+  private roomManager = this.ctx.get(() => RoomManager);
+
+  private level0Regex?: RegExp;
+  private level1Regex?: RegExp;
+  private level1GlobalRegex?: RegExp;
+  private level2Regex?: RegExp;
+  private level3Regex?: RegExp;
+
+  constructor(ctx: Context) {
+    super(ctx, {
+      resourceName: 'badwords',
+      emptyData: EMPTY_BADWORDS_DATA,
+    });
+  }
+
+  async init() {
+    if (this.enabled) {
+      this.ctx.middleware(YGOProCtosChat, async (msg, client, next) => {
+        if (client.isInternal) {
+          return next();
+        }
+        const room = client.roomName
+          ? this.roomManager.findByName(client.roomName)
+          : undefined;
+        const originalMessage = msg.msg;
+        const filtered = await this.filterText(originalMessage, room, client);
+
+        if (filtered.level >= 0) {
+          await this.ctx.dispatch(
+            new OnClientBadwordViolation(
+              client,
+              room,
+              originalMessage,
+              filtered.level,
+              filtered.message !== originalMessage
+                ? filtered.message
+                : undefined,
+              filtered.match,
+            ),
+            client as any,
+          );
+        }
+
+        if (filtered.blocked) {
+          await client.sendChat('#{chat_warn_level2}', ChatColor.RED);
+          return;
+        } else if (filtered.message !== msg.msg) {
+          msg.msg = filtered.message;
+          await client.sendChat('#{chat_warn_level1}', ChatColor.BABYBLUE);
+        } else if (filtered.level === 0) {
+          await client.sendChat('#{chat_warn_level0}', ChatColor.BABYBLUE);
+        }
+
+        return next();
+      });
+    }
+    await super.init();
+  }
+
+  async refreshResources() {
+    if (!this.enabled) {
+      return false;
+    }
+    return this.refreshFromRemote();
+  }
+
+  async refreshFromRemote() {
+    if (!this.enabled) {
+      return false;
+    }
+    const url = this.ctx.config.getString('BADWORDS_GET').trim();
+    if (!url) {
+      return false;
+    }
+    try {
+      const body = (
+        await this.ctx.http.get(url, {
+          responseType: 'json',
+        })
+      ).data;
+      const remoteData = this.resolveRemoteBadwordsData(body);
+      if (!remoteData) {
+        this.logger.warn({ url }, 'Remote badwords response is invalid');
+        return false;
+      }
+      await this.updateData(remoteData);
+      this.logger.info({ url }, 'Loaded remote resource');
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        {
+          url,
+          error: (error as Error).toString(),
+        },
+        'Failed loading remote resource',
+      );
+      return false;
+    }
+  }
+
+  async getBadwordLevel(text: string, room?: Room, client?: Client) {
+    const checkResult = await this.getBadwordCheck(text, room, client);
+    return checkResult.level;
+  }
+
+  async getBadwordCheck(text: string, room?: Room, client?: Client) {
+    if (!this.enabled) {
+      return { level: -1 } as BadwordCheckResult;
+    }
+    const event = await this.ctx.dispatch(
+      new BadwordTextCheck(text, room, client),
+      client as any,
+    );
+    return event?.value ?? ({ level: -1 } as BadwordCheckResult);
+  }
+
+  async filterText(text: string, room?: Room, client?: Client) {
+    const checkResult = await this.getBadwordCheck(text, room, client);
+    const { level } = checkResult;
+
+    if (level >= 2) {
+      return {
+        blocked: true,
+        level,
+        message: text,
+        match: checkResult.match,
+      };
+    }
+
+    if (level === 1 && typeof checkResult.message === 'string') {
+      return {
+        blocked: false,
+        level,
+        message: checkResult.message,
+        match: checkResult.match,
+      };
+    }
+    if (level === 1) {
+      return {
+        blocked: false,
+        level,
+        message: text,
+        match: checkResult.match,
+      };
+    }
+
+    return {
+      blocked: false,
+      level,
+      message: text,
+      match: checkResult.match,
+    };
+  }
+
+  protected registerLookupMiddleware() {
+    this.ctx.middleware(BadwordTextCheck, async (event, _client, next) => {
+      if (event.room && !event.room.checkChatBadword) {
+        event.use({ level: -1 });
+        return next();
+      }
+      const level = this.resolveBadwordLevel(event.text);
+      if (level.level === 1 && this.level1GlobalRegex) {
+        event.use({
+          ...level,
+          message: event.text.replace(this.level1GlobalRegex, '**'),
+        });
+      } else {
+        event.use(level);
+      }
+      return next();
+    });
+  }
+
+  protected onDataUpdated(nextData: BadwordsData): void {
+    this.level0Regex = this.buildRegex(nextData.level0, 'i');
+    this.level1Regex = this.buildRegex(nextData.level1, 'i');
+    this.level1GlobalRegex = this.buildRegex(nextData.level1, 'ig');
+    this.level2Regex = this.buildRegex(nextData.level2, 'i');
+    this.level3Regex = this.buildRegex(nextData.level3, 'i');
+  }
+
+  private resolveBadwordLevel(text: string): BadwordCheckResult {
+    if (!text) {
+      return { level: -1 };
+    }
+    const level3Match = this.level3Regex?.exec(text)?.[0];
+    if (level3Match) {
+      return { level: 3, match: level3Match };
+    }
+    const level2Match = this.level2Regex?.exec(text)?.[0];
+    if (level2Match) {
+      return { level: 2, match: level2Match };
+    }
+    const level1Match = this.level1Regex?.exec(text)?.[0];
+    if (level1Match) {
+      return { level: 1, match: level1Match };
+    }
+    const level0Match = this.level0Regex?.exec(text)?.[0];
+    if (level0Match) {
+      return { level: 0, match: level0Match };
+    }
+    return { level: -1 };
+  }
+
+  private buildRegex(words: string[], flags: string) {
+    const escapedWords = words
+      .map((word) => word.trim())
+      .filter((word) => !!word)
+      .map((word) => escapeRegExp(word));
+    if (!escapedWords.length) {
+      return undefined;
+    }
+    return new RegExp(`(?:${escapedWords.join(')|(?:')})`, flags);
+  }
+
+  private resolveRemoteBadwordsData(
+    rawData: unknown,
+  ): BadwordsData | undefined {
+    if (!isObjectRecord(rawData)) {
+      return undefined;
+    }
+
+    const level0 = this.ensureStringArray(rawData.level0);
+    const level1 = this.ensureStringArray(rawData.level1);
+    const level2 = this.ensureStringArray(rawData.level2);
+    const level3 = this.ensureStringArray(rawData.level3);
+
+    if (!level0 || !level1 || !level2 || !level3) {
+      return undefined;
+    }
+
+    return {
+      ...this.getResourceData(),
+      level0,
+      level1,
+      level2,
+      level3,
+    };
+  }
+
+  private ensureStringArray(value: unknown) {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  protected isEnabled() {
+    return this.enabled;
+  }
+}

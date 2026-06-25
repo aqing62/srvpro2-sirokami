@@ -1,0 +1,287 @@
+import { ChatColor } from 'ygopro-msg-encode';
+import { Context } from '../../app';
+import { OnRoomWin, OnRoomGameStart, Room } from '../../room';
+import { KoishiContextService } from '../../koishi/koishi-context-service';
+import { PlayerRating } from './player-rating.entity';
+
+const K_FACTOR = 32;
+
+export class LadderService {
+  private koishiContextService = this.ctx.get(() => KoishiContextService);
+
+  constructor(private ctx: Context) {}
+
+  async init() {
+    // 房间阶段：双方已登录则广播天梯模式
+    this.ctx.middleware(OnRoomGameStart, async (event, _client, next) => {
+      await this.announceLadderMode(event.room);
+      return next();
+    });
+
+    // 决斗结束：计算并记录 ELO
+    this.ctx.middleware(OnRoomWin, async (event, _client, next) => {
+      await this.processDuelResult(event.room, event.winMsg.player);
+      return next();
+    });
+
+    // /rating [玩家名] - 查看积分
+    const koishi = this.koishiContextService.instance;
+    this.koishiContextService
+      .attachI18n('rating', { description: '查看天梯积分' });
+    koishi.command('rating [...args]', '查看天梯积分').action(async ({ session }) => {
+      const ctx = this.koishiContextService.resolveCommandContext(session);
+      if (!ctx) return;
+      const { client } = ctx;
+
+      const args = (session.content || '').trim();
+      const targetName = args.replace(/^\/rating[\s]*/i, '').trim()
+        || client.displayName
+        || client.accountName
+        || '';
+
+      if (!this.ctx.database) {
+        await client.sendChat('数据库未启用', ChatColor.RED);
+        return;
+      }
+
+      const repo = this.ctx.database.getRepository(PlayerRating);
+      let rating: PlayerRating | null;
+
+      // Try accountName first, then displayName
+      rating = await repo.findOne({ where: { accountName: targetName } });
+      if (!rating) {
+        rating = await repo.findOne({ where: { displayName: targetName } });
+      }
+
+      if (!rating) {
+        await client.sendChat(
+          `玩家 "${targetName}" 暂无天梯数据`,
+          ChatColor.YELLOW,
+        );
+        return;
+      }
+
+      await client.sendChat(
+        [
+          `=== ${rating.displayName || rating.accountName} ===`,
+          `积分: ${rating.rating}  (胜${rating.wins} 负${rating.losses} 平${rating.draws})`,
+          `胜率: ${rating.winRate}  总计: ${rating.totalDuels}场`,
+          rating.winStreak > 1
+            ? `连胜: ${rating.winStreak}场  最佳连胜: ${rating.bestStreak}场`
+            : `最佳连胜: ${rating.bestStreak}场`,
+        ].join('\n'),
+        ChatColor.GREEN,
+      );
+    });
+
+    // /ladder - 排行榜
+    this.koishiContextService
+      .attachI18n('ladder', { description: '查看天梯排行榜' });
+    koishi.command('ladder', '查看天梯排行榜').action(async ({ session }) => {
+      const ctx = this.koishiContextService.resolveCommandContext(session);
+      if (!ctx) return;
+      const { client } = ctx;
+
+      if (!this.ctx.database) {
+        await client.sendChat('数据库未启用', ChatColor.RED);
+        return;
+      }
+
+      const repo = this.ctx.database.getRepository(PlayerRating);
+      const top = await repo.find({
+        order: { rating: 'DESC' },
+        take: 10,
+      });
+
+      if (!top.length) {
+        await client.sendChat('暂无天梯数据', ChatColor.YELLOW);
+        return;
+      }
+
+      const lines = ['=== 天梯排行榜 TOP10 ==='];
+      top.forEach((p, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+        const name = p.displayName || p.accountName;
+        lines.push(`${medal} ${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)`);
+      });
+
+      // Show requester's position if not in top 10
+      const myName = client.accountName;
+      if (myName && !top.find((p) => p.accountName === myName)) {
+        const count = await repo.count();
+        const myRating = await repo.findOne({ where: { accountName: myName } });
+        if (myRating) {
+          const above = await repo.count({
+            where: {},
+            order: { rating: 'DESC' },
+          });
+          // Count players with higher rating
+          const higherCount = await repo
+            .createQueryBuilder('p')
+            .where('p.rating > :rating', { rating: myRating.rating })
+            .getCount();
+          lines.push(
+            `...\n第${higherCount + 1}名: ${myRating.displayName || myRating.accountName} - ${myRating.rating}分`,
+          );
+        }
+      }
+
+      await client.sendChat(lines.join('\n'), ChatColor.GREEN);
+    });
+
+    // API: /api/ladder — 天梯排名（无需登录）
+    this.ctx.router.get('/api/ladder', async (koaCtx) => {
+      const database = this.ctx.database;
+      if (!database) {
+        koaCtx.body = { error: '数据库未启用' };
+        return;
+      }
+      const repo = database.getRepository(PlayerRating);
+
+      const search = String(koaCtx.query.search || '').trim();
+      let players: PlayerRating[];
+
+      if (search) {
+        const player = await repo
+          .createQueryBuilder('p')
+          .where('p.accountName = :name', { name: search })
+          .orWhere('p.displayName = :name2', { name2: search })
+          .getOne();
+        players = player ? [player] : [];
+      } else {
+        players = await repo.find({
+          order: { rating: 'DESC' },
+          take: 50,
+        });
+      }
+
+      koaCtx.body = {
+        players: players.map((p) => ({
+          name: p.displayName || p.accountName,
+          rating: p.rating,
+          wins: p.wins,
+          losses: p.losses,
+          draws: p.draws,
+          total: p.totalDuels,
+          streak: p.winStreak,
+          bestStreak: p.bestStreak,
+          winRate: p.totalDuels > 0
+            ? ((p.wins / p.totalDuels) * 100).toFixed(1) + '%'
+            : '0%',
+        })),
+        total: players.length,
+      };
+    });
+  }
+
+  private async processDuelResult(room: Room, winPlayer: number | undefined) {
+    // 只在比赛房间计分
+    if (!this.isMatchRoom(room)) return;
+    if ((room.hostinfo.mode & 0x2) !== 0) return;
+
+    const players = room.playingPlayers;
+    if (players.length < 2) return;
+
+    // 找到两个玩家
+    const p0 = players.find((c) => c.pos === 0);
+    const p1 = players.find((c) => c.pos === 1);
+    if (!p0 || !p1) return;
+
+    // 双方都必须登录
+    if (!p0.loggedIn || !p1.loggedIn) return;
+
+    // 排除 bot（名字以特殊标记或 isInternal）
+    if (p0.isInternal || p1.isInternal) return;
+
+    const database = this.ctx.database;
+    if (!database) return;
+
+    const repo = database.getRepository(PlayerRating);
+
+    let r0 = await repo.findOne({ where: { accountName: p0.accountName! } });
+    let r1 = await repo.findOne({ where: { accountName: p1.accountName! } });
+
+    if (!r0) {
+      r0 = repo.create();
+      r0.accountName = p0.accountName!;
+      r0.displayName = p0.displayName || p0.accountName!;
+    }
+    if (!r1) {
+      r1 = repo.create();
+      r1.accountName = p1.accountName!;
+      r1.displayName = p1.displayName || p1.accountName!;
+    }
+
+    // Keep display names fresh
+    r0.displayName = p0.displayName || p0.accountName!;
+    r1.displayName = p1.displayName || p1.accountName!;
+
+    // Determine result: 0 = p0 wins, 1 = p1 wins, -1 = draw
+    const result =
+      winPlayer === undefined ? -1
+      : (room.isPosSwapped ? winPlayer !== 0 : winPlayer === 0) ? 0
+      : 1;
+
+    // Calculate ELO
+    const d0 = r1.rating - r0.rating;
+    const d1 = -d0;
+    const e0 = 1 / (1 + Math.pow(10, d0 / 400));
+    const e1 = 1 - e0;
+
+    let s0: number, s1: number;
+    if (result === -1) {
+      s0 = 0.5; s1 = 0.5;
+      r0.draw(); r1.draw();
+    } else if (result === 0) {
+      s0 = 1; s1 = 0;
+      r0.win(); r1.lose();
+    } else {
+      s0 = 0; s1 = 1;
+      r0.lose(); r1.win();
+    }
+
+    const change0 = Math.round(K_FACTOR * (s0 - e0));
+    const change1 = Math.round(K_FACTOR * (s1 - e1));
+
+    r0.rating = Math.max(0, r0.rating + change0);
+    r1.rating = Math.max(0, r1.rating + change1);
+
+    await repo.save([r0, r1]);
+  }
+
+  private isMatchRoom(room: Room): boolean {
+    return room.name.startsWith('M#');
+  }
+
+  private async announceLadderMode(room: Room) {
+    if (!this.isMatchRoom(room)) return;
+    if ((room.hostinfo.mode & 0x2) !== 0) return;
+    const players = room.playingPlayers;
+    if (players.length < 2) return;
+    const p0 = players.find((c) => c.pos === 0);
+    const p1 = players.find((c) => c.pos === 1);
+    if (!p0 || !p1) return;
+    if (!p0.loggedIn || !p1.loggedIn) return;
+    if (p0.isInternal || p1.isInternal) return;
+
+    const name0 = p0.displayName || p0.accountName;
+    const name1 = p1.displayName || p1.accountName;
+
+    let r0 = 1000, r1 = 1000;
+    const database = this.ctx.database;
+    if (database) {
+      const repo = database.getRepository(PlayerRating);
+      const [rating0, rating1] = await Promise.all([
+        repo.findOne({ where: { accountName: p0.accountName! } }),
+        repo.findOne({ where: { accountName: p1.accountName! } }),
+      ]);
+      if (rating0) r0 = rating0.rating;
+      if (rating1) r1 = rating1.rating;
+    }
+
+    await room.sendChat(
+      `${name0}(${r0}) VS ${name1}(${r1}) — 双方已登录，本次决斗计入天梯积分`,
+      ChatColor.GREEN,
+    );
+  }
+}

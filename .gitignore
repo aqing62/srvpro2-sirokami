@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+_*.txt
+srvpro2/
