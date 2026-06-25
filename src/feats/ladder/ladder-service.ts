@@ -265,7 +265,7 @@ export class LadderService {
       }
 
       const limit = Math.min(
-        Math.max(parseInt(String(koaCtx.query.limit || '30'), 10) || 30, 1),
+        Math.max(parseInt(String(koaCtx.query.limit || '50'), 10) || 50, 1),
         100,
       );
 
