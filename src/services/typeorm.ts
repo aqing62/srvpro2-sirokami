@@ -10,6 +10,7 @@ import { LegacyBanEntity } from '../legacy-api/legacy-ban.entity';
 import { LegacyDeckEntity } from '../legacy-api/legacy-deck.entity';
 import { User } from '../feats/login';
 import { collectPluginTypeormEntities } from './plugin-typeorm-entity-loader';
+import * as fs from 'node:fs';
 
 export class TypeormLoader {
   constructor(private ctx: AppContext) {}
@@ -85,6 +86,46 @@ export const TypeormFactory = async (ctx: AppContext) => {
       },
       'Database initialized',
     );
+
+    // Migrate existing JSON users to database
+    try {
+      const usersPath = './data/admin_user.json';
+      if (fs.existsSync(usersPath)) {
+        const raw = fs.readFileSync(usersPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        const fileUsers: Record<string, any> = parsed.users || {};
+        const entries = Object.entries(fileUsers);
+        if (entries.length > 0) {
+          const repo = dataSource.getRepository(User);
+          let imported = 0;
+          for (const [accountName, entry] of entries) {
+            const existing = await repo.findOneBy({ accountName } as any);
+            if (!existing) {
+              const user = new User();
+              user.accountName = accountName;
+              user.password = entry.password || '';
+              user.enabled = entry.enabled !== false;
+              user.permissions = entry.permissions || '';
+              user.displayName = entry.displayName;
+              await repo.save(user);
+              imported++;
+            }
+          }
+          if (imported > 0) {
+            logger.info(
+              { imported, total: entries.length },
+              'Migrated users from JSON file to database',
+            );
+          }
+        }
+      }
+    } catch (migErr) {
+      logger.warn(
+        { err: (migErr as Error).message },
+        'User migration from JSON file failed (non-fatal)',
+      );
+    }
+
     return loader.setDatabase(dataSource);
   } catch (error) {
     logger.error(

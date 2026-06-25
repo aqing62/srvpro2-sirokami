@@ -1,8 +1,7 @@
 import * as fs from 'node:fs';
-import { DataSource, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Context } from '../../app';
 import { User } from './user.entity';
-import { TypeormLoader } from '../../services/typeorm';
 
 export interface UserEntry {
   password: string;
@@ -13,24 +12,16 @@ export interface UserEntry {
 
 export class UserService {
   private logger = this.ctx.createLogger(this.constructor.name);
-  private typeormLoader = this.ctx.get(() => TypeormLoader);
   private usersPath = './data/admin_user.json';
   private migrated = false;
 
   constructor(private ctx: Context) {}
 
   /**
-   * Auto-migrate existing JSON users to database on startup.
-   */
-  async init() {
-    await this.ensureMigration();
-  }
-
-  /**
    * Get the TypeORM repository if database is available.
    */
   private get repo(): Repository<User> | undefined {
-    const ds = this.typeormLoader.database;
+    const ds = this.ctx.database;
     if (!ds) return undefined;
     return ds.getRepository(User);
   }
@@ -38,15 +29,20 @@ export class UserService {
   /**
    * Ensure existing JSON users are migrated to the database.
    * Runs once per process lifetime.
+   * Returns true if migration completed or was not needed, false if DB not available.
    */
   async ensureMigration(): Promise<void> {
     if (this.migrated) return;
     this.migrated = true;
 
     const repo = this.repo;
-    if (!repo) return;
+    if (!repo) {
+      this.logger.warn('ensureMigration: no repo, skipping');
+      return;
+    }
 
     const fileUsers = this.loadUsersFromFile();
+    this.logger.info({ userCount: fileUsers ? Object.keys(fileUsers).length : 0 }, 'ensureMigration: users from file');
     if (!fileUsers || Object.keys(fileUsers).length === 0) return;
 
     let imported = 0;
