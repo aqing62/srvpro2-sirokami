@@ -1,4 +1,5 @@
 import { ChatColor } from 'ygopro-msg-encode';
+import * as fs from 'node:fs';
 import { Context } from '../../app';
 import { OnRoomWin, OnRoomGameStart, Room } from '../../room';
 import { KoishiContextService } from '../../koishi/koishi-context-service';
@@ -9,10 +10,22 @@ import { decodeDeckBase64 } from '../cloud-replay/utility';
 
 const K_FACTOR = 32;
 
+function loadCardMergeMap(): Record<number, number> {
+  try {
+    const raw = fs.readFileSync('./card_merge_map.json', 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
 export class LadderService {
   private koishiContextService = this.ctx.get(() => KoishiContextService);
+  private cardMergeMap: Record<number, number> = {};
 
-  constructor(private ctx: Context) {}
+  constructor(private ctx: Context) {
+    this.cardMergeMap = loadCardMergeMap();
+  }
 
   async init() {
     // 房间阶段：双方已登录则广播天梯模式
@@ -265,7 +278,7 @@ export class LadderService {
       }
 
       const limit = Math.min(
-        Math.max(parseInt(String(koaCtx.query.limit || '50'), 10) || 50, 1),
+        Math.max(parseInt(String(koaCtx.query.limit || '53'), 10) || 53, 1),
         100,
       );
 
@@ -296,8 +309,12 @@ export class LadderService {
             ...(deck.extra || []),
             ...(deck.side || []),
           ];
-          const uniqueCards = new Set(allCards);
-          for (const cid of uniqueCards) {
+          // Remap alternate art cards to canonical ID
+          const remapped = new Set<number>();
+          for (const cid of allCards) {
+            remapped.add(this.cardMergeMap[cid] || cid);
+          }
+          for (const cid of remapped) {
             cardTotal.set(cid, (cardTotal.get(cid) || 0) + 1);
             if (player.winner) {
               cardWins.set(cid, (cardWins.get(cid) || 0) + 1);
@@ -306,7 +323,7 @@ export class LadderService {
         }
       }
 
-      const MIN_TOTAL = 3; // 至少出现3次才计入胜率排行
+      const MIN_TOTAL = 20; // 至少出现20次才计入胜率排行
       const cardList: Array<{ cardId: number; wins: number; total: number; winRate: number }> = [];
       for (const [cid, total] of cardTotal) {
         const wins = cardWins.get(cid) || 0;
