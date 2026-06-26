@@ -1,4 +1,9 @@
-# SRVPro2
+# SRVPro2 - Sirokami 分支
+
+> Fork 自 [Nanahira/SRVPro2](https://github.com/MDPro2/srvpro2)（MIT License），用于白神服 Sirokami。
+> 原作者：Nanahira <nanahira@momobako.com>
+
+---
 
 SRVPro2 是 SRVPro 的下一代项目：一个直接控制 `ocgcore`（WASM）的 YGOPro 服务器实现。  
 它不再依赖“代理 ygopro 进程”的方案，而是用 TypeScript 在服务端直接管理对局、房间、扩展功能和重连流程。
