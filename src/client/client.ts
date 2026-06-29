@@ -272,6 +272,12 @@ export class Client {
   deck?: YGOProDeck;
   @ClientRoomField()
   startDeck?: YGOProDeck;
+  @ClientRoomField()
+  loggedIn = false;
+  @ClientRoomField()
+  accountName?: string;
+  @ClientRoomField()
+  displayName?: string;
   fleeFree = false;
 
   async sendTypeChange() {

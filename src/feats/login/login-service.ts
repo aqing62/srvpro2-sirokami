@@ -6,7 +6,7 @@ import { UserService } from './user-service';
 
 declare module '../../client' {
   interface Client {
-    loggedIn?: boolean;
+    loggedIn: boolean;
     accountName?: string;
     displayName?: string;
   }
