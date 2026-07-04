@@ -544,6 +544,12 @@ export class LadderService {
           continue;
         }
 
+        // realName with '$' means connected with password but didn't login
+        if (p0.realName.includes('$') || p1.realName.includes('$')) {
+          skipped++;
+          continue;
+        }
+
         // Determine result (same logic as processDuelResult)
         const winnerPlayer = record.players.find((p) => p.winner);
         if (!winnerPlayer) {
