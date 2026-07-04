@@ -40,6 +40,13 @@ export class LadderService {
       return next();
     });
 
+    // 启动时自动重算 ELO（基于 valid=true 的比赛记录）
+    setTimeout(() => {
+      this.recalculateAllRatings().catch((err) => {
+        this.ctx.createLogger('LadderService').error('Auto recalculate failed: ' + err);
+      });
+    }, 5000);
+
     // /rating [玩家名] - 查看积分
     const koishi = this.koishiContextService.instance;
     this.koishiContextService
