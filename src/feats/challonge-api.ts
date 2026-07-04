@@ -73,18 +73,8 @@ export class Challonge {
     return this.config.challonge_url.includes('tabulator');
   }
 
-  private authHeaders(): Record<string, string> {
-    if (this.isTabulator) {
-      return { 'x-user-token': this.config.api_key };
-    }
-    return {};
-  }
-
   private authParams(): Record<string, string> {
-    if (!this.isTabulator) {
-      return { api_key: this.config.api_key };
-    }
-    return {};
+    return { api_key: this.config.api_key };
   }
 
   private get tournamentEndpoint() {
@@ -108,7 +98,6 @@ export class Challonge {
           include_participants: 1,
           include_matches: 1,
         },
-        headers: this.authHeaders(),
         timeout: 5000,
       });
       // Tabulator 直接返回数据，Challonge 包在 { tournament: {...} } 里
@@ -162,14 +151,12 @@ export class Challonge {
   async putScore(matchId: number, match: MatchPost, retried = 0) {
     try {
       const root = this.config.challonge_url.replace(/\/+$/, '');
-      const body: Record<string, unknown> = { match };
-      if (!this.isTabulator) {
-        body.api_key = this.config.api_key;
-      }
       await this.http.put(
         `${root}/v1/tournaments/${this.config.tournament_id}/matches/${matchId}.json`,
-        body,
-        { headers: this.authHeaders() },
+        {
+          api_key: this.config.api_key,
+          match,
+        },
       );
       this.previous = undefined;
       this.previousTime = 0;
@@ -195,8 +182,9 @@ export class Challonge {
       await this.http.delete(
         `${root}/v1/tournaments/${this.config.tournament_id}/participants/clear.json`,
         {
-          params: this.authParams(),
-          headers: this.authHeaders(),
+          params: {
+            api_key: this.config.api_key,
+          },
           validateStatus: () => true,
         },
       );
@@ -214,14 +202,12 @@ export class Challonge {
   async uploadParticipants(participants: { name: string; deckbuf?: string }[]) {
     try {
       const root = this.config.challonge_url.replace(/\/+$/, '');
-      const body: Record<string, unknown> = { participants };
-      if (!this.isTabulator) {
-        body.api_key = this.config.api_key;
-      }
       await this.http.post(
         `${root}/v1/tournaments/${this.config.tournament_id}/participants/bulk_add.json`,
-        body,
-        { headers: this.authHeaders() },
+        {
+          api_key: this.config.api_key,
+          participants,
+        },
       );
       this.previous = undefined;
       this.previousTime = 0;
