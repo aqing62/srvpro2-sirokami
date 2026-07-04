@@ -69,6 +69,24 @@ export class Challonge {
   private previous?: Tournament;
   private previousTime = 0;
 
+  private get isTabulator() {
+    return this.config.challonge_url.includes('tabulator');
+  }
+
+  private authHeaders(): Record<string, string> {
+    if (this.isTabulator) {
+      return { 'x-user-token': this.config.api_key };
+    }
+    return {};
+  }
+
+  private authParams(): Record<string, string> {
+    if (!this.isTabulator) {
+      return { api_key: this.config.api_key };
+    }
+    return {};
+  }
+
   private get tournamentEndpoint() {
     const root = this.config.challonge_url.replace(/\/+$/, '');
     return `${root}/v1/tournaments/${this.config.tournament_id}.json`;
@@ -84,16 +102,45 @@ export class Challonge {
       return this.previous;
     }
     try {
-      const {
-        data: { tournament },
-      } = await this.http.get<TournamentWrapper>(this.tournamentEndpoint, {
+      const { data } = await this.http.get<any>(this.tournamentEndpoint, {
         params: {
-          api_key: this.config.api_key,
+          ...this.authParams(),
           include_participants: 1,
           include_matches: 1,
         },
+        headers: this.authHeaders(),
         timeout: 5000,
       });
+      // Tabulator 直接返回数据，Challonge 包在 { tournament: {...} } 里
+      let tournament: Tournament;
+      if (this.isTabulator) {
+        const raw = data.data || data;
+        // Tabulator 的 participants/matches 是平铺的，包装成 Challonge 格式
+        tournament = {
+          id: raw.id,
+          participants: (raw.participants || []).map((p: any) => ({
+            participant: {
+              id: p.id,
+              name: p.name,
+              deckbuf: p.deckbuf || (p as any).deckbuf,
+            },
+          })),
+          matches: (raw.matches || []).map((m: any) => ({
+            match: {
+              id: m.id,
+              state: m.status === 'Finished' ? 'complete'
+                   : m.status === 'InProgress' ? 'open'
+                   : 'pending',
+              player1_id: m.player1Id,
+              player2_id: m.player2Id,
+              winner_id: m.winnerId || undefined,
+              scores_csv: `${m.player1Score}-${m.player2Score}`,
+            },
+          })),
+        };
+      } else {
+        tournament = data.tournament;
+      }
       this.previous = tournament;
       this.previousTime = Date.now();
       return tournament;
@@ -115,12 +162,14 @@ export class Challonge {
   async putScore(matchId: number, match: MatchPost, retried = 0) {
     try {
       const root = this.config.challonge_url.replace(/\/+$/, '');
+      const body: Record<string, unknown> = { match };
+      if (!this.isTabulator) {
+        body.api_key = this.config.api_key;
+      }
       await this.http.put(
         `${root}/v1/tournaments/${this.config.tournament_id}/matches/${matchId}.json`,
-        {
-          api_key: this.config.api_key,
-          match,
-        },
+        body,
+        { headers: this.authHeaders() },
       );
       this.previous = undefined;
       this.previousTime = 0;
@@ -146,9 +195,8 @@ export class Challonge {
       await this.http.delete(
         `${root}/v1/tournaments/${this.config.tournament_id}/participants/clear.json`,
         {
-          params: {
-            api_key: this.config.api_key,
-          },
+          params: this.authParams(),
+          headers: this.authHeaders(),
           validateStatus: () => true,
         },
       );
@@ -166,12 +214,14 @@ export class Challonge {
   async uploadParticipants(participants: { name: string; deckbuf?: string }[]) {
     try {
       const root = this.config.challonge_url.replace(/\/+$/, '');
+      const body: Record<string, unknown> = { participants };
+      if (!this.isTabulator) {
+        body.api_key = this.config.api_key;
+      }
       await this.http.post(
         `${root}/v1/tournaments/${this.config.tournament_id}/participants/bulk_add.json`,
-        {
-          api_key: this.config.api_key,
-          participants,
-        },
+        body,
+        { headers: this.authHeaders() },
       );
       this.previous = undefined;
       this.previousTime = 0;

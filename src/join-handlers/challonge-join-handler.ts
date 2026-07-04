@@ -26,6 +26,12 @@ export class ChallongeJoinHandler {
         return preRoom.join(client, NetPlayerType.OBSERVER);
       }
 
+      // 只有 D# 前缀的房间才走比赛流程，其他房间正常进入
+      const passStr = (msg.pass || '').trim();
+      if (passStr && !passStr.startsWith('D#')) {
+        return next();
+      }
+
       const resolved = await this.challongeService.resolveJoinInfo(client.name);
       if (resolved.ok === false) {
         return client.die(
@@ -67,7 +73,7 @@ export class ChallongeJoinHandler {
     if (this.ctx.config.getBoolean('CHALLONGE_NO_MATCH_MODE')) {
       return recoverPrefix ? `${recoverPrefix}#${matchId}` : `${matchId}`;
     }
-    return recoverPrefix ? `${recoverPrefix},M#${matchId}` : `M#${matchId}`;
+    return recoverPrefix ? `${recoverPrefix},D#${matchId}` : `D#${matchId}`;
   }
 
   private resolvePreRoom(pass: string | undefined) {
