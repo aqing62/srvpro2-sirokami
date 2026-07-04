@@ -448,6 +448,144 @@ export class LadderService {
         await client.sendChat(lines.join('\n'), ChatColor.GREEN);
       }
     });
+
+    // API: POST /api/ladder/recalculate — 重算所有天梯ELO积分
+    this.ctx.router.post('/api/ladder/recalculate', async (koaCtx) => {
+      const ok = await this.ctx.legacyApiAuth.auth(
+        String(koaCtx.query.username || ''),
+        String(koaCtx.query.pass || koaCtx.query.password || ''),
+        'recalculate_rating',
+        'recalculate_rating',
+      );
+      if (!ok) {
+        koaCtx.status = 403;
+        koaCtx.body = { error: '权限不足' };
+        return;
+      }
+      try {
+        const result = await this.recalculateAllRatings();
+        koaCtx.body = result;
+      } catch (err) {
+        koaCtx.status = 500;
+        koaCtx.body = { error: (err as Error).message };
+      }
+    });
+  }
+
+  /**
+   * Recalculate all ELO ratings from valid duel records.
+   * Clears player_rating and replays all M# matches chronologically.
+   */
+  private async recalculateAllRatings(): Promise<{ processed: number; skipped: number; errors: number }> {
+    const database = this.ctx.database;
+    if (!database) throw new Error('数据库未启用');
+
+    const duelRepo = database.getRepository(DuelRecordEntity);
+    const ratingRepo = database.getRepository(PlayerRating);
+    const logger = this.ctx.createLogger('RecalculateRatings');
+
+    // Clear all existing ratings
+    await ratingRepo.clear();
+    logger.info('Cleared all player_rating records');
+
+    // Get all valid M# room records chronologically
+    const records = await duelRepo
+      .createQueryBuilder('record')
+      .leftJoinAndSelect('record.players', 'player')
+      .where('record.name LIKE :pattern', { pattern: 'M#%' })
+      .andWhere('record.winReason IS NOT NULL')
+      .andWhere('record.valid = true')
+      .orderBy('record.endTime', 'ASC')
+      .getMany();
+
+    let processed = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const record of records) {
+      try {
+        // Skip tag mode
+        if ((record.hostInfo.mode & 0x2) !== 0) {
+          skipped++;
+          continue;
+        }
+
+        // Find pos 0 and pos 1 players
+        const p0 = record.players.find((p) => p.pos === 0);
+        const p1 = record.players.find((p) => p.pos === 1);
+        if (!p0 || !p1) {
+          skipped++;
+          continue;
+        }
+
+        // name = client.accountName for logged-in M# players
+        const account0 = p0.name;
+        const account1 = p1.name;
+
+        // Determine result (same logic as processDuelResult)
+        const winnerPlayer = record.players.find((p) => p.winner);
+        if (!winnerPlayer) {
+          skipped++; // draw or incomplete — skip for safety
+          continue;
+        }
+
+        const isPosSwapped = !p0.isFirst;
+        // winDuelPos = duel position of winner (0 or 1 for non-tag)
+        const winDuelPos = winnerPlayer.pos & 0x1;
+        const result = isPosSwapped
+          ? (winDuelPos !== 0 ? 0 : 1)
+          : (winDuelPos === 0 ? 0 : 1);
+        // result: 0 = p0 wins, 1 = p1 wins
+
+        // Get or create ratings
+        let r0 = await ratingRepo.findOne({ where: { accountName: account0 } });
+        let r1 = await ratingRepo.findOne({ where: { accountName: account1 } });
+
+        if (!r0) {
+          r0 = ratingRepo.create();
+          r0.accountName = account0;
+          r0.displayName = p0.realName;
+        }
+        if (!r1) {
+          r1 = ratingRepo.create();
+          r1.accountName = account1;
+          r1.displayName = p1.realName;
+        }
+
+        // Keep display names fresh
+        r0.displayName = p0.realName;
+        r1.displayName = p1.realName;
+
+        // ELO calculation (exact same as processDuelResult)
+        const d0 = r1.rating - r0.rating;
+        const e0 = 1 / (1 + Math.pow(10, d0 / 400));
+        const e1 = 1 - e0;
+
+        let s0: number, s1: number;
+        if (result === 0) {
+          s0 = 1; s1 = 0;
+          r0.win(); r1.lose();
+        } else {
+          s0 = 0; s1 = 1;
+          r0.lose(); r1.win();
+        }
+
+        const change0 = Math.round(K_FACTOR * (s0 - e0));
+        const change1 = Math.round(K_FACTOR * (s1 - e1));
+
+        r0.rating = Math.max(0, r0.rating + change0);
+        r1.rating = Math.max(0, r1.rating + change1);
+
+        await ratingRepo.save([r0, r1]);
+        processed++;
+      } catch (err) {
+        logger.error(`Error processing record ${record.id}: ${err}`);
+        errors++;
+      }
+    }
+
+    logger.info(`Recalculate complete: ${processed} processed, ${skipped} skipped, ${errors} errors`);
+    return { processed, skipped, errors };
   }
 
   private async processDuelResult(room: Room, winPlayer: number | undefined) {
