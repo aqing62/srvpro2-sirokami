@@ -217,6 +217,7 @@ export class LadderService {
         .leftJoinAndSelect('record.players', 'player')
         .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
         .andWhere('record.winReason IS NOT NULL')
+        .andWhere('record.valid = true')
         .andWhere(
           'EXISTS (' +
             'SELECT 1 FROM duel_record_player winner ' +
@@ -291,6 +292,7 @@ export class LadderService {
         .leftJoinAndSelect('record.players', 'player')
         .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
         .andWhere('record.winReason IS NOT NULL')
+        .andWhere('record.valid = true')
         .orderBy('record.endTime', 'DESC')
         .take(500)
         .getMany();
@@ -395,6 +397,7 @@ export class LadderService {
         .leftJoinAndSelect('record.players', 'player')
         .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
         .andWhere('record.winReason IS NOT NULL')
+        .andWhere('record.valid = true')
         .andWhere(
           'EXISTS (' +
             'SELECT 1 FROM duel_record_player winner ' +

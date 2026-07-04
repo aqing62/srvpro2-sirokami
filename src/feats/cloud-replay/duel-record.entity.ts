@@ -68,6 +68,9 @@ export class DuelRecordEntity extends BaseTimeEntity {
   })
   winReason?: number | null; // OnRoomWin.winMsg.type；null means the duel is not finished yet.
 
+  @Column('bool', { default: true })
+  valid = true; // 有效性标记，false表示不计分
+
   @Column({
     type: 'text',
   })
