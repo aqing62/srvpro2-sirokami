@@ -7,6 +7,7 @@ import { PlayerRating } from './player-rating.entity';
 import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
 import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
 import { decodeDeckBase64 } from '../cloud-replay/utility';
+import { User } from '../login/user.entity';
 
 const K_FACTOR = 32;
 
@@ -495,6 +496,14 @@ export class LadderService {
     await ratingRepo.clear();
     logger.info('Cleared all player_rating records');
 
+    // Load registered user accounts (must be logged in for ladder)
+    const userRepo = database.getRepository(User);
+    const loggedInAccounts = new Set(
+      (await userRepo.find({ where: { enabled: true }, select: ['accountName'] }))
+        .map((u) => u.accountName),
+    );
+    logger.info(`Loaded ${loggedInAccounts.size} registered users`);
+
     // Get all valid M# room records chronologically
     const records = await duelRepo
       .createQueryBuilder('record')
@@ -528,6 +537,12 @@ export class LadderService {
         // name = client.accountName for logged-in M# players
         const account0 = p0.name;
         const account1 = p1.name;
+
+        // Both must be registered users (logged in) for ladder
+        if (!loggedInAccounts.has(account0) || !loggedInAccounts.has(account1)) {
+          skipped++;
+          continue;
+        }
 
         // Determine result (same logic as processDuelResult)
         const winnerPlayer = record.players.find((p) => p.winner);
