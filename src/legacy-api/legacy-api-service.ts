@@ -167,6 +167,7 @@ export class LegacyApiService {
               score: undefined,
               lp: undefined,
               cardCount: undefined,
+              deck: undefined,
             })),
           ]
             .sort((a, b) => a.pos - b.pos)
@@ -184,6 +185,7 @@ export class LegacyApiService {
                     }
                   : null,
               pos: member.pos,
+              deck: member.deck || null,
             }));
           return {
             roomid: this.roomIdService.getRoomIdString(info.identifier),
