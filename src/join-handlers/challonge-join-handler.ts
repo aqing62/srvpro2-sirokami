@@ -21,15 +21,15 @@ export class ChallongeJoinHandler {
         return next();
       }
 
-      const preRoom = this.resolvePreRoom(msg.pass);
-      if (preRoom) {
-        return preRoom.join(client, NetPlayerType.OBSERVER);
-      }
-
       // 只有 D# 前缀的房间才走比赛流程，其他房间正常进入
       const passStr = (msg.pass || '').trim();
       if (passStr && !passStr.startsWith('D#')) {
         return next();
+      }
+
+      const preRoom = this.resolvePreRoom(msg.pass);
+      if (preRoom) {
+        return preRoom.join(client, NetPlayerType.OBSERVER);
       }
 
       const resolved = await this.challongeService.resolveJoinInfo(client.name);

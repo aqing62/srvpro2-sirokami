@@ -63,7 +63,7 @@ describe('ChallongeService position guard', () => {
 });
 
 describe('ChallongeJoinHandler', () => {
-  test('joins existing rooms as observer regardless of duel stage', async () => {
+  test('joins existing D# rooms as observer', async () => {
     const middlewares: any[] = [];
     const preRoom = {
       join: jest.fn(),
@@ -77,7 +77,7 @@ describe('ChallongeJoinHandler', () => {
     };
     const roomManager = {
       findByName: jest.fn((name: string) =>
-        name === 'M#123' ? preRoom : undefined,
+        name === 'D#123' ? preRoom : undefined,
       ),
     };
     const ctx: any = {
@@ -104,7 +104,7 @@ describe('ChallongeJoinHandler', () => {
     const client: any = { name: 'Alice' };
 
     await middlewares[0](
-      new YGOProCtosJoinGame().fromPartial({ pass: 'M#123' }),
+      new YGOProCtosJoinGame().fromPartial({ pass: 'D#123' }),
       client,
       jest.fn(),
     );
@@ -181,7 +181,7 @@ describe('ChallongeJoinHandler', () => {
     );
 
     expect(roomManager.findOrCreateByName).toHaveBeenCalledWith(
-      'M#777',
+      'D#777',
       client,
     );
     expect(client.challongeInfo).toBe(participant);
