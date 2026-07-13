@@ -1143,6 +1143,11 @@ export class Room {
       return;
     }
 
+    // 检查所有坑位都有玩家
+    if (this.playingPlayers.length !== this.players.length) {
+      return;
+    }
+
     // 检查所有玩家是否都 ready
     const allReady = this.playingPlayers.every((p) => p.deck);
     if (!allReady) {
@@ -1307,6 +1312,11 @@ export class Room {
     if (![DuelStage.Begin, DuelStage.Siding].includes(this.duelStage)) {
       return false;
     }
+    // 检查所有坑位都有玩家
+    if (this.playingPlayers.length !== this.players.length) {
+      return false;
+    }
+
     if (this.playingPlayers.some((p) => !p.deck)) {
       return false;
     }
