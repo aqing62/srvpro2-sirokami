@@ -1,7 +1,7 @@
 import { ChatColor } from 'ygopro-msg-encode';
 import * as fs from 'node:fs';
 import { Context } from '../../app';
-import { OnRoomWin, OnRoomGameStart, Room } from '../../room';
+import { OnRoomWin, OnRoomGameStart, OnRoomPlayerReady, Room, DuelStage } from '../../room';
 import { KoishiContextService } from '../../koishi/koishi-context-service';
 import { PlayerRating } from './player-rating.entity';
 import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
@@ -29,7 +29,15 @@ export class LadderService {
   }
 
   async init() {
-    // 房间阶段：双方已登录则广播天梯模式
+    // 房间准备阶段：双方准备完毕且已登录则广播天梯模式
+    this.ctx.middleware(OnRoomPlayerReady, async (event, _client, next) => {
+      if (event.room.duelStage === DuelStage.Begin) {
+        await this.announceLadderMode(event.room);
+      }
+      return next();
+    });
+
+    // 游戏开始阶段：双方已登录则广播天梯模式
     this.ctx.middleware(OnRoomGameStart, async (event, _client, next) => {
       await this.announceLadderMode(event.room);
       return next();
