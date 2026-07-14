@@ -79,6 +79,9 @@ export class Challonge {
 
   private get tournamentEndpoint() {
     const root = this.config.challonge_url.replace(/\/+$/, '');
+    if (this.isTabulator) {
+      return `${root}/${this.config.tournament_id}`;
+    }
     return `${root}/v1/tournaments/${this.config.tournament_id}.json`;
   }
 
@@ -92,14 +95,16 @@ export class Challonge {
       return this.previous;
     }
     try {
-      const { data } = await this.http.get<any>(this.tournamentEndpoint, {
-        params: {
-          ...this.authParams(),
-          include_participants: 1,
-          include_matches: 1,
-        },
+      const httpOpts: any = {
+        params: { include_participants: 1, include_matches: 1 },
         timeout: 5000,
-      });
+      };
+      if (this.isTabulator) {
+        httpOpts.headers = { Authorization: `Bearer ${this.config.api_key}` };
+      } else {
+        httpOpts.params = { ...httpOpts.params, ...this.authParams() };
+      }
+      const { data } = await this.http.get<any>(this.tournamentEndpoint, httpOpts);
       // Tabulator 直接返回数据，Challonge 包在 { tournament: {...} } 里
       let tournament: Tournament;
       if (this.isTabulator) {
