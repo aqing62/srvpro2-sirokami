@@ -277,14 +277,18 @@ export class Reconnect {
     // 客户端发来的 deck 不分主/额外，需要先分类再对比
     const cardReader = await room.getCardReader();
     const classifiedDeck = classifyDeckCards(msg.deck, cardReader);
-    const deckMatch = isUpdateDeckPayloadEqual(classifiedDeck, roomPlayer.startDeck);
-    // log first 3 cards of each section for debugging
+    // 手动排序比较，绕过 isUpdateDeckPayloadEqual 可能的序列化差异
+    const startSorted = { m: [...roomPlayer.startDeck.main].sort(), e: [...roomPlayer.startDeck.extra].sort(), s: [...roomPlayer.startDeck.side].sort() };
+    const classSorted = { m: [...classifiedDeck.main].sort(), e: [...classifiedDeck.extra].sort(), s: [...classifiedDeck.side].sort() };
+    const mainMatch = startSorted.m.length === classSorted.m.length && startSorted.m.every((c, i) => c === classSorted.m[i]);
+    const extraMatch = startSorted.e.length === classSorted.e.length && startSorted.e.every((c, i) => c === classSorted.e[i]);
+    const sideMatch = startSorted.s.length === classSorted.s.length && startSorted.s.every((c, i) => c === classSorted.s[i]);
+    const deckMatch = mainMatch && extraMatch && sideMatch;
     this.logger.info(
       {
-        deckMatch, stage: room.duelStage,
-        start: { m: roomPlayer.startDeck.main.slice(0, 3), e: roomPlayer.startDeck.extra.slice(0, 3), s: roomPlayer.startDeck.side.slice(0, 3) },
-        msg: { m: msg.deck.main.slice(0, 3), e: msg.deck.extra.slice(0, 3), s: msg.deck.side.slice(0, 3) },
-        classified: { m: classifiedDeck.main.slice(0, 3), e: classifiedDeck.extra.slice(0, 3), s: classifiedDeck.side.slice(0, 3) },
+        deckMatch, mainMatch, extraMatch, sideMatch, stage: room.duelStage,
+        startLen: { m: roomPlayer.startDeck.main.length, e: roomPlayer.startDeck.extra.length, s: roomPlayer.startDeck.side.length },
+        classifiedLen: { m: classifiedDeck.main.length, e: classifiedDeck.extra.length, s: classifiedDeck.side.length },
       },
       'Reconnect deck check',
     );
