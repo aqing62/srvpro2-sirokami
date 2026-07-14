@@ -1,0 +1,145 @@
+host: "::"
+port: 50010
+apiHost: "127.0.0.1"
+apiPort: 50009
+dbHost: "127.0.0.1"
+dbPort: 5432
+dbUser: postgres
+dbPass: "jwyxym"
+dbName: srvpro2_siro
+dbNoInit: 0
+redisUrl: ""
+logLevel: info
+wsHost: ""
+wsPort: 0
+enableSsl: 1
+sslPath: ./ssl
+sslCert: "./ssl/ygopro3.cn-crt.pem"
+sslKey: "./ssl/ygopro3.cn-key.pem"
+trustedProxies:
+  - 127.0.0.0/8
+  - ::1/128
+noConnectCountLimit: 1
+ygoproVersion: "0x1362"
+altVersions:
+  - 2330
+  - 2331
+useProxy: ""
+ygoproPath: [./cards, ./cards-pre, ./cards-diy]
+extraScriptPath: ""
+deckMainMin: 40
+deckMainMax: 60
+deckExtraMax: 15
+deckSideMax: 15
+deckMaxCopies: 3
+ocgcoreDebugLog: 0
+ocgcoreWasmPath: ""
+welcome: "Siro Server"
+enableTips: 1
+tipsGet: ""
+tipsGetZh: ""
+tipsSplitZh: 0
+tipsPrefix: "Tip: "
+tipsInterval: 30000
+tipsIntervalIngame: 120000
+enableWords: 1
+wordsGet: ""
+enableDialogues: 1
+dialoguesGet: http://mercury233.me/ygosrv233/dialogues.json
+dialoguesGetCustom: ""
+enableBadwords: 1
+badwordsGet: ""
+enableWindbot: 1
+windbotBotlist: ./bots.json
+windbotSpawn: 0
+windbotEndpoint: http://127.0.0.1:2399
+windbotMyIp: 127.0.0.1
+enableChatgpt: 1
+chatgptEndpoint: https://api-inference.modelscope.cn
+chatgptToken: ms-4f6e6818-2a7e-43a1-a30c-25a0bdc514d2
+chatgptModel: Qwen/Qwen2.5-7B-Instruct
+chatgptSystemPrompt: 你是{{windbot}}，一名与{{player}}实时互动的游戏对手。玩家当前 locale 是
+  {{locale}}，你必须始终使用 {{language}}
+  回复（不要混用其他语言）。你的回复应简短、有趣、贴合当前情境，增强玩家沉浸感。避免冗长解释或重复内容，并且每次回复不能超过100个字。
+chatgptTokenLimit: 12000
+chatgptExtraOpts: {}
+enableReconnect: 1
+enableCloudReplay: 1
+cloudReplayInstantWrite: 0
+enableRecover: 1
+tournamentMode: 0
+tournamentModeCheckDeck: 1
+mycardEnabled: 0
+mycardAuthBaseUrl: https://sapi.moecube.com:444/accounts
+mycardAuthKey: 233333
+mycardBanGet: https://sapi.moecube.com:444/ygopro/big-brother/ban
+bigBrotherEnabled: 0
+bigBrotherAccessKey: 233
+bigBrotherPost: https://sapi.moecube.com:444/ygopro/big-brother
+mycardArenaMode: entertain
+mycardArenaAccessKey: 233
+mycardArenaReadyTime: 30
+mycardArenaHangTimeout: 90
+mycardArenaCheckPermit: https://sapi.moecube.com:444/ygopro/match/permit
+mycardArenaPostScore: https://sapi.moecube.com:444/ygopro/arena/score
+mycardArenaGetScore: https://sapi.moecube.com:444/ygopro/arena/user
+mycardArenaGetScoreParam: username
+mycardArenaPunishQuitBeforeMatch: 0
+mycardArenaMatchApiEnabled: 1
+mycardArenaMatchApiUrl: https://sapi.moecube.com:444/ygopro/match
+mycardArenaMatchApiAccessKey: ""
+athleticCheckEnabled: 0
+athleticCheckRankUrl: https://sapi.moecube.com:444/ygopro/analytics/deck/type
+athleticCheckIdentifierUrl: https://sapi.moecube.com:444/ygopro/identifier/production
+athleticCheckFetchParams:
+  type: week
+  source: mycard-athletic
+athleticCheckRankCount: 20
+athleticCheckBanCount: 20
+athleticCheckTtl: 600
+challongeEnabled: 0
+challongeNoMatchMode: 0
+challongePostDetailedScore: 1
+challongePostScoreMidduel: 1
+challongeCacheTtl: 60000
+challongeApiKey: ""
+challongeTournamentId: ""
+challongeUrl: https://api.challonge.com
+blockReplayToPlayer: 0
+enableRoomlist: 1
+reconnectTimeout: 180000
+hidePlayerName: 0
+enableRandomDuel: 1
+randomDuelBlankPassModes:
+  - S
+  - M
+randomDuelNoRematchCheck: 0
+randomDuelRecordMatchScores: 1
+randomDuelDisableChat: 0
+randomDuelReadyTime: 20
+randomDuelHangTimeout: 90
+sideTimeoutMinutes: 3
+enableMenu: 0
+menu:
+  "#{menu_random_duel}": ""
+  "#{menu_random_duel_match}": M
+  "#{menu_ai_duel}": AI
+  "#{menu_more}":
+    "#{menu_random_duel_single}": S
+    "#{menu_random_duel_tag}": T
+    "#{menu_ai_duel_match}": AI,M
+    "#{menu_ai_duel_tag}": AI,T
+    "#{menu_return}": {}
+hostinfoLflist: 0
+hostinfoRule: 5
+hostinfoMode: 0
+hostinfoDuelRule: 5
+hostinfoSideins: 0
+hostinfoNoCheckDeck: 0
+hostinfoNoShuffleDeck: 0
+hostinfoStartLp: 8000
+hostinfoStartHand: 5
+hostinfoDrawCount: 1
+hostinfoTimeLimit: 300
+hostinfoNoWatch: 0
+hostinfoAutoDeath: 0

@@ -21,9 +21,9 @@ export class ChallongeJoinHandler {
         return next();
       }
 
-      // 只有 D# 前缀的房间才走比赛流程，其他房间正常进入
+      // 只有 D# 前缀的房间才走比赛流程，无密码或非 D# 都跳过
       const passStr = (msg.pass || '').trim();
-      if (passStr && !passStr.startsWith('D#')) {
+      if (!passStr || !passStr.startsWith('D#')) {
         return next();
       }
 
