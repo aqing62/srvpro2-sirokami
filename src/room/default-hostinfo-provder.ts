@@ -184,6 +184,9 @@ export class DefaultHostInfoProvider {
     this.registerRoomMode('(M|MATCH)', ({ hostinfo }) => ({
       mode: setWinMatchCountBits(hostinfo.mode, 2),
     }))
+      .registerRoomMode('D#', ({ hostinfo }) => ({
+        mode: setWinMatchCountBits(hostinfo.mode, 2),
+      }))
       .registerRoomMode('(T|TAG)', ({ hostinfo, defaultHostinfo }) => ({
         mode: setTagBit(hostinfo.mode, true),
         start_lp: defaultHostinfo.start_lp * 2,
