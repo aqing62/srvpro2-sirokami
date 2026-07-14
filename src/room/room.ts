@@ -1083,6 +1083,8 @@ export class Room {
 
     // Save deck
     client.deck = deck;
+    // 保存卡组副本供重连校验（Begin 和 Siding 阶段都保存，洗牌前是最准确的）
+    client.duelDeck = YGOProDeck.fromUpdateDeckPayload(deck.toUpdateDeckPayload());
 
     // In Begin stage, also save as startDeck for side deck checking
     if (this.duelStage === DuelStage.Begin) {
