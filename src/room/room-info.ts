@@ -16,6 +16,7 @@ export interface RoomInfoPlayer {
   score: number | undefined;
   lp: number | undefined;
   cardCount: number | undefined;
+  loggedIn: boolean;
 }
 
 export interface RoomInfoDuelPlayer {

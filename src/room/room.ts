@@ -2271,6 +2271,7 @@ export class Room {
         pos: p.pos,
         ip: p.ip,
         deck: p.deck?.toYdkeURL(),
+        loggedIn: p.loggedIn,
         score:
           this.getDuelPos(p) >= 0 && this.getDuelPos(p) <= 1
             ? this.score[this.getDuelPos(p) as 0 | 1]
