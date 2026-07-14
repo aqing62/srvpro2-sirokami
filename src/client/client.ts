@@ -273,8 +273,6 @@ export class Client {
   @ClientRoomField()
   startDeck?: YGOProDeck;
   @ClientRoomField()
-  duelDeck?: YGOProDeck;
-  @ClientRoomField()
   loggedIn = false;
   @ClientRoomField()
   accountName?: string;

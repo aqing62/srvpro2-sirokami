@@ -274,8 +274,7 @@ export class Reconnect {
       return failReconnect();
     }
 
-    const expectedDeck = roomPlayer.duelDeck || roomPlayer.startDeck;
-    if (!isUpdateDeckPayloadEqual(msg.deck, expectedDeck)) {
+    if (!isUpdateDeckPayloadEqual(msg.deck, roomPlayer.startDeck)) {
       // 卡组不匹配
       await client.sendChat('#{deck_incorrect_reconnect}', ChatColor.RED);
 

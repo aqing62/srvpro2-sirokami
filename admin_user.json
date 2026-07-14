@@ -1,0 +1,37 @@
+{
+  "file": "./data/admin_user.json",
+  "permission_examples": {
+    "sudo": {
+      "get_rooms": true,
+      "duel_log": true,
+      "download_replay": true,
+      "clear_duel_log": true,
+      "deck_dashboard_read": true,
+      "deck_dashboard_write": true,
+      "shout": true,
+      "stop": true,
+      "change_settings": true,
+      "ban_user": true,
+      "kick_user": true,
+      "start_death": true,
+      "pre_dashboard": true,
+      "update_dashboard": true,
+      "vip": true
+    },
+    "readonly": {
+      "get_rooms": true
+    }
+  },
+  "users": {
+    "aqing": {
+      "password": "lmj13533369183",
+      "enabled": true,
+      "permissions": "sudo"
+    },
+    "readonly": {
+      "password": "readonly123",
+      "enabled": true,
+      "permissions": "readonly"
+    }
+  }
+}

@@ -1083,8 +1083,6 @@ export class Room {
 
     // Save deck
     client.deck = deck;
-    // 保存卡组副本供重连校验（Begin 和 Siding 阶段都保存，洗牌前是最准确的）
-    client.duelDeck = YGOProDeck.fromUpdateDeckPayload(deck.toUpdateDeckPayload());
 
     // In Begin stage, also save as startDeck for side deck checking
     if (this.duelStage === DuelStage.Begin) {
@@ -1108,6 +1106,8 @@ export class Room {
         }
       }
     } else if (this.duelStage === DuelStage.Siding) {
+      // 更新 startDeck 为换备后的卡组，供重连校验
+      client.startDeck = YGOProDeck.fromUpdateDeckPayload(deck.toUpdateDeckPayload());
       // In Siding stage, send DUEL_START to the player who submitted deck
       // Siding 阶段不发 DeckCount
       await client.send(new YGOProStocDuelStart());
@@ -1647,11 +1647,6 @@ export class Room {
       this.playingPlayers.map((p) => ({ name: p.name, deck: p.deck! })),
       this.isPosSwapped,
     );
-    // 保存洗牌前的 deck 供重连校验
-    this.playingPlayers.forEach((p) => {
-      if (p.deck) p.duelDeck = YGOProDeck.fromUpdateDeckPayload(p.deck.toUpdateDeckPayload());
-    });
-
     const playersInShuffleOrder = duelRecord.toSwappedPlayers();
     const shuffledDecks = await this.ctx.dispatch(
       new RoomShuffleDeck(

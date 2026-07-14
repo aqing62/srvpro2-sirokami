@@ -1,0 +1,2 @@
+{"permissions":{"allow":["Edit(E:\\ygopro-server-src\\**)", "Write(E:\\ygopro-server-src\\**)",
+  "Edit(D:\\YGO\\Server\\SirokamiServer\\**)", "Write(D:\\YGO\\Server\\SirokamiServer\\**)", "Bash(curl -s \"https://api.ygopro3.cn/api/ladder\")", "Bash(npx tsc *)", "Bash(git add *)", "Bash(git commit *)", "Bash(git push*)", "Bash(git config *)", "Bash(env)", "Bash(git remote *)", "Bash(ssh-keyscan *)", "Read(//c/Users/17274/.ssh/**)", "Bash(ssh *)"]}}
