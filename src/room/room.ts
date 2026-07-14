@@ -1105,10 +1105,6 @@ export class Room {
     } else if (this.duelStage === DuelStage.Siding) {
       // 更新 startDeck 为换备后的卡组，供重连校验和下次换备对比
       client.startDeck = deck;
-      this.logger.info(
-        { name: client.name, main: deck.main.length, extra: deck.extra.length, side: deck.side.length },
-        'Siding: updated startDeck',
-      );
       // In Siding stage, send DUEL_START to the player who submitted deck
       // Siding 阶段不发 DeckCount
       await client.send(new YGOProStocDuelStart());
