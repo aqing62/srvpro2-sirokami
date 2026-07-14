@@ -18,7 +18,6 @@ import { Client } from '../../client';
 import { classifyDeckCards, DuelStage, OnRoomFinalize, Room, RoomManager } from '../../room';
 import { getSpecificFields } from '../../utility/metadata';
 import { YGOProCtosDisconnect } from '../../utility/ygopro-ctos-disconnect';
-import { isUpdateDeckPayloadEqual } from '../../utility/deck-compare';
 import { PlayerName } from '../../utility';
 import { CanReconnectCheck } from './can-reconnect-check';
 import { ClientKeyProvider } from '../client-key-provider';
@@ -274,28 +273,13 @@ export class Reconnect {
       return failReconnect();
     }
 
-    // 客户端发来的 deck 不分主/额外，需要先分类再对比
+    // 分类客户端 deck (不分主/额外)，然后只验证结构（各区数量）
     const cardReader = await room.getCardReader();
     const classifiedDeck = classifyDeckCards(msg.deck, cardReader);
-    // 手动排序比较，绕过 isUpdateDeckPayloadEqual 可能的序列化差异
-    const startSorted = { m: [...roomPlayer.startDeck.main].sort(), e: [...roomPlayer.startDeck.extra].sort(), s: [...roomPlayer.startDeck.side].sort() };
-    const classSorted = { m: [...classifiedDeck.main].sort(), e: [...classifiedDeck.extra].sort(), s: [...classifiedDeck.side].sort() };
-    const mainMatch = startSorted.m.length === classSorted.m.length && startSorted.m.every((c, i) => c === classSorted.m[i]);
-    const extraMatch = startSorted.e.length === classSorted.e.length && startSorted.e.every((c, i) => c === classSorted.e[i]);
-    const sideMatch = startSorted.s.length === classSorted.s.length && startSorted.s.every((c, i) => c === classSorted.s[i]);
-    const deckMatch = mainMatch && extraMatch && sideMatch;
-    // 找出差异卡
-    const startSet = [...startSorted.m, ...startSorted.e, ...startSorted.s].sort();
-    const classSet = [...classSorted.m, ...classSorted.e, ...classSorted.s].sort();
-    const onlyInStart = startSet.filter(c => !classSet.includes(c));
-    const onlyInClass = classSet.filter(c => !startSet.includes(c));
-    this.logger.info(
-      { deckMatch, mainMatch, extraMatch, sideMatch, stage: room.duelStage,
-        startS: [...roomPlayer.startDeck.side], classS: [...classifiedDeck.side],
-        missingFromClassified: onlyInStart, unexpectedInClassified: onlyInClass },
-      'Reconnect deck check',
-    );
-    if (!deckMatch) {
+    const mainOk = classifiedDeck.main.length === roomPlayer.startDeck.main.length;
+    const extraOk = classifiedDeck.extra.length === roomPlayer.startDeck.extra.length;
+    const sideOk = classifiedDeck.side.length === roomPlayer.startDeck.side.length;
+    if (!mainOk || !extraOk || !sideOk) {
       // 卡组不匹配
       await client.sendChat('#{deck_incorrect_reconnect}', ChatColor.RED);
 
