@@ -1645,6 +1645,11 @@ export class Room {
       this.playingPlayers.map((p) => ({ name: p.name, deck: p.deck! })),
       this.isPosSwapped,
     );
+    // 保存洗牌前的 deck 供重连校验
+    this.playingPlayers.forEach((p) => {
+      if (p.deck) p.duelDeck = YGOProDeck.fromUpdateDeckPayload(p.deck.toUpdateDeckPayload());
+    });
+
     const playersInShuffleOrder = duelRecord.toSwappedPlayers();
     const shuffledDecks = await this.ctx.dispatch(
       new RoomShuffleDeck(
