@@ -186,6 +186,7 @@ export class LegacyApiService {
                   : null,
               pos: member.pos,
               deck: member.deck || null,
+              loggedIn: (member as any).loggedIn ?? false,
             }));
           return {
             roomid: this.roomIdService.getRoomIdString(info.identifier),
