@@ -278,8 +278,14 @@ export class Reconnect {
     const cardReader = await room.getCardReader();
     const classifiedDeck = classifyDeckCards(msg.deck, cardReader);
     const deckMatch = isUpdateDeckPayloadEqual(classifiedDeck, roomPlayer.startDeck);
+    // log first 3 cards of each section for debugging
     this.logger.info(
-      { deckMatch, stage: room.duelStage, startDeckMain: roomPlayer.startDeck.main.length, startDeckExtra: roomPlayer.startDeck.extra.length, startDeckSide: roomPlayer.startDeck.side.length, msgMain: msg.deck.main.length, msgExtra: msg.deck.extra.length, msgSide: msg.deck.side.length, classifiedMain: classifiedDeck.main.length, classifiedExtra: classifiedDeck.extra.length },
+      {
+        deckMatch, stage: room.duelStage,
+        start: { m: roomPlayer.startDeck.main.slice(0, 3), e: roomPlayer.startDeck.extra.slice(0, 3), s: roomPlayer.startDeck.side.slice(0, 3) },
+        msg: { m: msg.deck.main.slice(0, 3), e: msg.deck.extra.slice(0, 3), s: msg.deck.side.slice(0, 3) },
+        classified: { m: classifiedDeck.main.slice(0, 3), e: classifiedDeck.extra.slice(0, 3), s: classifiedDeck.side.slice(0, 3) },
+      },
       'Reconnect deck check',
     );
     if (!deckMatch) {
