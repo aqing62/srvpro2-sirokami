@@ -274,7 +274,12 @@ export class Reconnect {
       return failReconnect();
     }
 
-    if (!isUpdateDeckPayloadEqual(msg.deck, roomPlayer.startDeck)) {
+    const deckMatch = isUpdateDeckPayloadEqual(msg.deck, roomPlayer.startDeck);
+    this.logger.info(
+      { deckMatch, stage: room.duelStage, startDeckMain: roomPlayer.startDeck.main.length, startDeckExtra: roomPlayer.startDeck.extra.length, startDeckSide: roomPlayer.startDeck.side.length, msgMain: msg.deck.main.length, msgExtra: msg.deck.extra.length, msgSide: msg.deck.side.length },
+      'Reconnect deck check',
+    );
+    if (!deckMatch) {
       // 卡组不匹配
       await client.sendChat('#{deck_incorrect_reconnect}', ChatColor.RED);
 
