@@ -343,7 +343,7 @@ export class LadderService {
       }
 
       const totalDecks = records.length * 2; // 每场2个卡组
-      const MIN_TOTAL = 20;
+      const MIN_TOTAL = 50;
 
       const cardList: Array<{ cardId: number; wins: number; total: number; winRate: number; usageRate: number }> = [];
       for (const [cid, total] of cardTotal) {
