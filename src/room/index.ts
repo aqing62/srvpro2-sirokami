@@ -1,4 +1,5 @@
 export * from './room';
+export { classifyDeckCards } from './room';
 export * from './duel-record';
 export * from './room-manager';
 export * from './duel-stage';

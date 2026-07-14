@@ -140,6 +140,19 @@ type RoomWinOptions = {
   killOcgcore?: boolean;
 };
 
+export function classifyDeckCards(rawDeck: YGOProDeck, cardReader: any): YGOProDeck {
+  const deck = new YGOProDeck({ main: [], extra: [], side: rawDeck.side });
+  for (const card of rawDeck.main) {
+    const cardEntry = readCardWithReader(cardReader, card);
+    if (cardEntry?.type && cardEntry.type & OcgcoreCommonConstants.TYPES_EXTRA_DECK) {
+      deck.extra.push(card);
+    } else {
+      deck.main.push(card);
+    }
+  }
+  return deck;
+}
+
 export class Room {
   constructor(
     private ctx: Context,
@@ -200,7 +213,7 @@ export class Room {
   }
   private _cardReader?: CardReader;
   private cardReaderLock = new BetterLock();
-  private async getCardReader() {
+  async getCardReader() {
     return this.cardReaderLock.acquire(async () => {
       if (!this._cardReader) {
         this._cardReader = await this.resourceLoader.getCardReader();
@@ -1018,24 +1031,8 @@ export class Room {
       return;
     }
 
-    const deck = new YGOProDeck({
-      main: [],
-      extra: [],
-      side: msg.deck.side,
-    });
-    // we have to distinguish main and extra deck cards
     const cardReader = await this.getCardReader();
-    for (const card of msg.deck.main) {
-      const cardEntry = readCardWithReader(cardReader, card);
-      if (
-        cardEntry?.type &&
-        cardEntry.type & OcgcoreCommonConstants.TYPES_EXTRA_DECK
-      ) {
-        deck.extra.push(card);
-      } else {
-        deck.main.push(card);
-      }
-    }
+    const deck = classifyDeckCards(msg.deck, cardReader);
 
     // Check deck based on stage
     if (this.duelStage === DuelStage.Begin) {

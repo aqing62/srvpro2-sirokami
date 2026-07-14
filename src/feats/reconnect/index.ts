@@ -15,7 +15,7 @@ import {
 } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { Client } from '../../client';
-import { DuelStage, OnRoomFinalize, Room, RoomManager } from '../../room';
+import { classifyDeckCards, DuelStage, OnRoomFinalize, Room, RoomManager } from '../../room';
 import { getSpecificFields } from '../../utility/metadata';
 import { YGOProCtosDisconnect } from '../../utility/ygopro-ctos-disconnect';
 import { isUpdateDeckPayloadEqual } from '../../utility/deck-compare';
@@ -274,9 +274,12 @@ export class Reconnect {
       return failReconnect();
     }
 
-    const deckMatch = isUpdateDeckPayloadEqual(msg.deck, roomPlayer.startDeck);
+    // 客户端发来的 deck 不分主/额外，需要先分类再对比
+    const cardReader = await room.getCardReader();
+    const classifiedDeck = classifyDeckCards(msg.deck, cardReader);
+    const deckMatch = isUpdateDeckPayloadEqual(classifiedDeck, roomPlayer.startDeck);
     this.logger.info(
-      { deckMatch, stage: room.duelStage, startDeckMain: roomPlayer.startDeck.main.length, startDeckExtra: roomPlayer.startDeck.extra.length, startDeckSide: roomPlayer.startDeck.side.length, msgMain: msg.deck.main.length, msgExtra: msg.deck.extra.length, msgSide: msg.deck.side.length },
+      { deckMatch, stage: room.duelStage, startDeckMain: roomPlayer.startDeck.main.length, startDeckExtra: roomPlayer.startDeck.extra.length, startDeckSide: roomPlayer.startDeck.side.length, msgMain: msg.deck.main.length, msgExtra: msg.deck.extra.length, msgSide: msg.deck.side.length, classifiedMain: classifiedDeck.main.length, classifiedExtra: classifiedDeck.extra.length },
       'Reconnect deck check',
     );
     if (!deckMatch) {
