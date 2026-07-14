@@ -284,12 +284,15 @@ export class Reconnect {
     const extraMatch = startSorted.e.length === classSorted.e.length && startSorted.e.every((c, i) => c === classSorted.e[i]);
     const sideMatch = startSorted.s.length === classSorted.s.length && startSorted.s.every((c, i) => c === classSorted.s[i]);
     const deckMatch = mainMatch && extraMatch && sideMatch;
+    // 找出差异卡
+    const startSet = [...startSorted.m, ...startSorted.e, ...startSorted.s].sort();
+    const classSet = [...classSorted.m, ...classSorted.e, ...classSorted.s].sort();
+    const onlyInStart = startSet.filter(c => !classSet.includes(c));
+    const onlyInClass = classSet.filter(c => !startSet.includes(c));
     this.logger.info(
-      {
-        deckMatch, mainMatch, extraMatch, sideMatch, stage: room.duelStage,
-        startLen: { m: roomPlayer.startDeck.main.length, e: roomPlayer.startDeck.extra.length, s: roomPlayer.startDeck.side.length },
-        classifiedLen: { m: classifiedDeck.main.length, e: classifiedDeck.extra.length, s: classifiedDeck.side.length },
-      },
+      { deckMatch, mainMatch, extraMatch, sideMatch, stage: room.duelStage,
+        startS: [...roomPlayer.startDeck.side], classS: [...classifiedDeck.side],
+        missingFromClassified: onlyInStart, unexpectedInClassified: onlyInClass },
       'Reconnect deck check',
     );
     if (!deckMatch) {
