@@ -77,18 +77,8 @@ export class Challonge {
     return { api_key: this.config.api_key };
   }
 
-  private authHeader(): Record<string, string> {
-    if (this.isTabulator) {
-      return { Authorization: `Bearer ${this.config.api_key}` };
-    }
-    return {};
-  }
-
   private get tournamentEndpoint() {
     const root = this.config.challonge_url.replace(/\/+$/, '');
-    if (this.isTabulator) {
-      return `${root}/${this.config.tournament_id}`;
-    }
     return `${root}/v1/tournaments/${this.config.tournament_id}.json`;
   }
 
@@ -103,15 +93,10 @@ export class Challonge {
     }
     try {
       const { data } = await this.http.get<any>(this.tournamentEndpoint, {
-        params: this.isTabulator
-          ? { include_participants: 1, include_matches: 1 }
-          : {
-              ...this.authParams(),
-              include_participants: 1,
-              include_matches: 1,
-            },
-        headers: {
-          ...this.authHeader(),
+        params: {
+          ...this.authParams(),
+          include_participants: 1,
+          include_matches: 1,
         },
         timeout: 5000,
       });
