@@ -69,19 +69,8 @@ export class Challonge {
   private previous?: Tournament;
   private previousTime = 0;
 
-  private get isTabulator() {
-    return this.config.challonge_url.includes('tabulator');
-  }
-
-  private authParams(): Record<string, string> {
-    return { api_key: this.config.api_key };
-  }
-
   private get tournamentEndpoint() {
     const root = this.config.challonge_url.replace(/\/+$/, '');
-    if (this.isTabulator) {
-      return `${root}/${this.config.tournament_id}`;
-    }
     return `${root}/v1/tournaments/${this.config.tournament_id}.json`;
   }
 
@@ -95,46 +84,16 @@ export class Challonge {
       return this.previous;
     }
     try {
-      const httpOpts: any = {
-        params: { include_participants: 1, include_matches: 1 },
+      const {
+        data: { tournament },
+      } = await this.http.get<TournamentWrapper>(this.tournamentEndpoint, {
+        params: {
+          api_key: this.config.api_key,
+          include_participants: 1,
+          include_matches: 1,
+        },
         timeout: 5000,
-      };
-      if (this.isTabulator) {
-        httpOpts.headers = { Authorization: `Bearer ${this.config.api_key}` };
-      } else {
-        httpOpts.params = { ...httpOpts.params, ...this.authParams() };
-      }
-      const { data } = await this.http.get<any>(this.tournamentEndpoint, httpOpts);
-      // Tabulator 直接返回数据，Challonge 包在 { tournament: {...} } 里
-      let tournament: Tournament;
-      if (this.isTabulator) {
-        const raw = data.data || data;
-        // Tabulator 的 participants/matches 是平铺的，包装成 Challonge 格式
-        tournament = {
-          id: raw.id,
-          participants: (raw.participants || []).map((p: any) => ({
-            participant: {
-              id: p.id,
-              name: p.name,
-              deckbuf: p.deckbuf || (p as any).deckbuf,
-            },
-          })),
-          matches: (raw.matches || []).map((m: any) => ({
-            match: {
-              id: m.id,
-              state: m.status === 'Finished' ? 'complete'
-                   : m.status === 'InProgress' ? 'open'
-                   : 'pending',
-              player1_id: m.player1Id,
-              player2_id: m.player2Id,
-              winner_id: m.winnerId || undefined,
-              scores_csv: `${m.player1Score}-${m.player2Score}`,
-            },
-          })),
-        };
-      } else {
-        tournament = data.tournament;
-      }
+      });
       this.previous = tournament;
       this.previousTime = Date.now();
       return tournament;
