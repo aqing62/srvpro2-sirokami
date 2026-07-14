@@ -274,9 +274,7 @@ export class Reconnect {
       return failReconnect();
     }
 
-    // Dueling 阶段跳过卡组校验：ocgcore 已有正确卡组，洗牌后 client.deck 已变化
-    const skipDeckCheck = room.duelStage === DuelStage.Dueling;
-    if (!skipDeckCheck && !isUpdateDeckPayloadEqual(msg.deck, roomPlayer.startDeck)) {
+    if (!isUpdateDeckPayloadEqual(msg.deck, roomPlayer.startDeck)) {
       // 卡组不匹配
       await client.sendChat('#{deck_incorrect_reconnect}', ChatColor.RED);
 
