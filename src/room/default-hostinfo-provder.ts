@@ -187,10 +187,10 @@ export class DefaultHostInfoProvider {
       .registerRoomMode('D', ({ hostinfo }) => ({
         mode: setWinMatchCountBits(hostinfo.mode, 2),
       }))
-      .registerRoomMode('C', {
+      .registerRoomMode('C', () => ({
         no_check_deck: 1,
         random_deck: 1,
-      })
+      }))
       .registerRoomMode('(T|TAG)', ({ hostinfo, defaultHostinfo }) => ({
         mode: setTagBit(hostinfo.mode, true),
         start_lp: defaultHostinfo.start_lp * 2,
