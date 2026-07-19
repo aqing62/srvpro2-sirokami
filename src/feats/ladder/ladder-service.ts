@@ -537,12 +537,13 @@ export class LadderService {
     await ratingRepo.clear();
     logger.info(`Cleared ${ratingsCleared} player_rating records`);
 
-    // 废弃全部录像
+    // 废弃普通对局录像（保留比赛录像）
     const result = await duelRepo
       .createQueryBuilder()
       .update()
       .set({ valid: false })
       .where('valid = true')
+      .andWhere('"isTournament" = false')
       .execute();
     const recordsArchived = result.affected || 0;
     logger.info(`Archived ${recordsArchived} duel records`);
