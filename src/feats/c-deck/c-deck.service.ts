@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import YGOProDeck from 'ygopro-deck-encode';
-import { YGOProStocChangeSide } from 'ygopro-msg-encode';
+import { ChatColor } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { OnRoomJoinPlayer } from '../../room/room-event/on-room-join-player';
 import { DuelStage } from '../../room/duel-stage';
@@ -20,53 +20,30 @@ export class CDeckService {
   async init() {
     this.loadDecks();
 
-    // 玩家加入 C 模式房间时，自动分配随机卡组
     this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
       const room = event.room;
       if (!room.hostinfo.random_deck) return next();
-      if (client.deck) return next(); // 已有卡组，不重复分配
       if (room.duelStage !== DuelStage.Begin) return next();
 
-      // C 模式强制 noHost
       room.noHost = true;
 
+      // 分配随机卡组
       const assigned = this.assignRandomDeck(room);
-      if (!assigned) {
-        await room.sendChat('卡组池为空，请联系管理员上传卡组');
-        return next();
+      if (assigned) {
+        client.deck = assigned;
+        client.startDeck = assigned;
+        this.logger.info(`${client.name} assigned deck "${assigned.name}" in room ${room.name}`);
+        await client.sendChat(
+          `编年史模式：你获得了随机卡组「${assigned.name}」`,
+          ChatColor.BABYBLUE,
+        );
       }
 
-      client.deck = assigned;
-      client.startDeck = assigned;
-
-      // 通知所有人该玩家已准备
+      // 通知所有玩家该玩家已准备
       const changeMsg = client.prepareChangePacket();
       await Promise.all(
         room.allPlayers.map((p) => p.send(changeMsg)),
       );
-
-      this.logger.info(
-        `${client.name} assigned random deck "${assigned.name}" in room ${room.name}`,
-      );
-
-      // 双方到齐 → 进入备牌阶段，不直接开打
-      const allReadyAndFull = room.playingPlayers.length === room.players.length
-        && room.playingPlayers.every((p) => p.deck);
-      if (allReadyAndFull) {
-        room.duelStage = DuelStage.Siding;
-        // 清除 deck 让客户端进入备牌 UI（startDeck 保留用于校验）
-        for (const p of room.playingPlayers) {
-          p.deck = undefined;
-        }
-        await Promise.all(
-          room.playingPlayers.map((p) =>
-            p.send(new YGOProStocChangeSide()),
-          ),
-        );
-        await room.sendChat(
-          '双方已获得随机卡组，请在 90 秒内调整备牌后提交',
-        );
-      }
 
       return next();
     });
@@ -96,9 +73,6 @@ export class CDeckService {
     }
   }
 
-  /**
-   * 给房间玩家分配一个随机卡组，确保同一房间内不重复。
-   */
   private assignRandomDeck(room: { playingPlayers: Array<{ deck?: YGOProDeck }> }): YGOProDeck | null {
     if (!this.decks.length) return null;
 
