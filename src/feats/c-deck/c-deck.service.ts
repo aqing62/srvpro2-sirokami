@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import YGOProDeck from 'ygopro-deck-encode';
 import { ChatColor } from 'ygopro-msg-encode';
 import { Context } from '../../app';
-import { OnRoomJoinPlayer } from '../../room/room-event/on-room-join-player';
+import { OnRoomPlayerReady } from '../../room/room-event/on-room-player-ready';
 import { DuelStage } from '../../room/duel-stage';
 
 const DECKS_DIR = './decks-c/';
@@ -20,13 +20,13 @@ export class CDeckService {
   async init() {
     this.loadDecks();
 
-    // C 模式：进房时分配随机卡组，玩家手动开打
-    this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
+    // C 模式：玩家准备后替换为随机卡组
+    this.ctx.middleware(OnRoomPlayerReady, async (event, client, next) => {
       const room = event.room;
       if (!room.hostinfo.random_deck) return next();
       if (room.duelStage !== DuelStage.Begin) return next();
 
-      // 分配随机卡组
+      // 分配随机卡组（替换客户端提交的卡组）
       const assigned = this.assignRandomDeck(room);
       if (!assigned) {
         await room.sendChat('卡组池为空，请联系管理员上传卡组');
