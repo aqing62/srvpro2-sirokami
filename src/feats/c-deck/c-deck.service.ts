@@ -1,17 +1,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import YGOProDeck from 'ygopro-deck-encode';
-import { ChatColor, YGOProStocChangeSide } from 'ygopro-msg-encode';
+import { ChatColor } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { OnRoomJoinPlayer } from '../../room/room-event/on-room-join-player';
-import { OnRoomPlayerReady } from '../../room/room-event/on-room-player-ready';
 import { DuelStage } from '../../room/duel-stage';
 
 const DECKS_DIR = './decks-c/';
 
 export class CDeckService {
   private decks: YGOProDeck[] = [];
-  private assignedDecks = new Map<string, YGOProDeck>(); // roomName:pos → deck
 
   constructor(private ctx: Context) {}
 
@@ -22,53 +20,41 @@ export class CDeckService {
   async init() {
     this.loadDecks();
 
-    // 玩家进房：标记 noHost
     this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
-      const room = event.room;
-      if (!room.hostinfo.random_deck) return next();
-      room.noHost = true;
-      return next();
-    });
-
-    // 玩家提交卡组后：替换为随机卡组，双方就位则进备牌
-    this.ctx.middleware(OnRoomPlayerReady, async (event, client, next) => {
       const room = event.room;
       if (!room.hostinfo.random_deck) return next();
       if (room.duelStage !== DuelStage.Begin) return next();
 
-      // 分配随机卡组（替换客户端提交的卡组）
+      room.noHost = true;
+
+      // 分配随机卡组（直接写入 client.deck，ocgcore 会使用这个卡组）
       const assigned = this.assignRandomDeck(room);
-      if (assigned) {
-        client.deck = assigned;
-        client.startDeck = assigned;
-        this.logger.info(`${client.name} assigned deck "${assigned.name}" in room ${room.name}`);
-        await client.sendChat(
-          `编年史模式：你获得了随机卡组「${assigned.name}」`,
-          ChatColor.BABYBLUE,
-        );
+      if (!assigned) {
+        await room.sendChat('卡组池为空，请联系管理员上传卡组');
+        return next();
       }
 
-      // 更新玩家的 ready 状态
+      client.deck = assigned;
+      client.startDeck = assigned;
+
+      this.logger.info(`${client.name} assigned deck "${assigned.name}" in room ${room.name}`);
+      await client.sendChat(
+        `编年史模式：你获得了随机卡组「${assigned.name}」`,
+        ChatColor.BABYBLUE,
+      );
+
+      // 通知所有人该玩家已准备
       const changeMsg = client.prepareChangePacket();
       await Promise.all(
         room.allPlayers.map((p) => p.send(changeMsg)),
       );
 
-      // 双方都 ready → 进入备牌阶段
+      // 双方到齐 → 直接开始游戏（跳过备牌，ocgcore 使用分配的随机卡组）
       const allReady = room.playingPlayers.length === room.players.length
         && room.playingPlayers.every((p) => p.deck);
       if (allReady) {
-        room.duelStage = DuelStage.Siding;
-        for (const p of room.playingPlayers) {
-          p.startDeck = p.deck;
-          p.deck = undefined;
-        }
-        await Promise.all(
-          room.playingPlayers.map((p) =>
-            p.send(new YGOProStocChangeSide()),
-          ),
-        );
-        await room.sendChat('双方已获得随机卡组，请在 90 秒内调整备牌后提交');
+        this.logger.info(`Starting C mode game in room ${room.name}`);
+        await room.startGame();
       }
 
       return next();
