@@ -1,9 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import YGOProDeck from 'ygopro-deck-encode';
-import { ChatColor } from 'ygopro-msg-encode';
+import { ChatColor, YGOProStocChangeSide } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { OnRoomJoinPlayer } from '../../room/room-event/on-room-join-player';
+import { RoomSideCheck } from '../../room/room-event/room-side-check';
 import { DuelStage } from '../../room/duel-stage';
 
 const DECKS_DIR = './decks-c/';
@@ -19,6 +20,14 @@ export class CDeckService {
 
   async init() {
     this.loadDecks();
+
+    // C 模式跳过备牌校验（玩家用自己的卡组，服务器分配仅供参考）
+    this.ctx.middleware(RoomSideCheck, async (msg, _client, next) => {
+      if (msg.room.hostinfo.random_deck) {
+        return msg.yes();
+      }
+      return next();
+    });
 
     this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
       const room = event.room;
@@ -39,11 +48,30 @@ export class CDeckService {
         );
       }
 
-      // 通知所有玩家该玩家已准备
+      // 通知所有玩家
       const changeMsg = client.prepareChangePacket();
       await Promise.all(
         room.allPlayers.map((p) => p.send(changeMsg)),
       );
+
+      // 双方到齐 → 进入备牌阶段
+      const allReady = room.playingPlayers.length === room.players.length
+        && room.playingPlayers.every((p) => p.deck);
+      if (allReady && room.duelStage === DuelStage.Begin) {
+        room.duelStage = DuelStage.Siding;
+        for (const p of room.playingPlayers) {
+          p.startDeck = p.deck; // 保留分配的卡组作为基准
+          p.deck = undefined;
+        }
+        await Promise.all(
+          room.playingPlayers.map((p) =>
+            p.send(new YGOProStocChangeSide()),
+          ),
+        );
+        await room.sendChat(
+          '双方已获得随机卡组，请在 90 秒内调整备牌后提交',
+        );
+      }
 
       return next();
     });
