@@ -30,6 +30,9 @@ export class DefaultDeckChecker {
     });
 
     this.ctx.middleware(RoomSideCheck, (msg, client, next) => {
+      if (msg.room.hostinfo.no_check_deck) {
+        return next();
+      }
       const { deck, startDeck } = msg;
       if (!checkChangeSide(startDeck, deck)) {
         return msg.no();

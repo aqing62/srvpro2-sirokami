@@ -4,7 +4,6 @@ import YGOProDeck from 'ygopro-deck-encode';
 import { ChatColor, YGOProStocChangeSide } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { OnRoomJoinPlayer } from '../../room/room-event/on-room-join-player';
-import { RoomSideCheck } from '../../room/room-event/room-side-check';
 import { DuelStage } from '../../room/duel-stage';
 
 const DECKS_DIR = './decks-c/';
@@ -20,14 +19,6 @@ export class CDeckService {
 
   async init() {
     this.loadDecks();
-
-    // C 模式跳过备牌校验（玩家用自己的卡组，服务器分配仅供参考）
-    this.ctx.middleware(RoomSideCheck, async (msg, _client, next) => {
-      if (msg.room.hostinfo.random_deck) {
-        return msg.yes();
-      }
-      return next();
-    });
 
     this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
       const room = event.room;
