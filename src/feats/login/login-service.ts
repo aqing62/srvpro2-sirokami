@@ -16,10 +16,35 @@ export class LoginService {
   private koishiContextService = this.ctx.get(() => KoishiContextService);
   private userService = this.ctx.get(() => UserService);
 
+  /** IP → 用户名 自动登录映射（仅内存，重启清空） */
+  private ipUserMap = new Map<string, string>();
+
   constructor(private ctx: Context) {}
 
   async init() {
     const koishi = this.koishiContextService.instance;
+
+    // 进房自动登录：匹配 IP
+    this.ctx.middleware(OnRoomJoin, async (_event, client, next) => {
+      if (client.loggedIn) return next();
+
+      const ip = client.ip;
+      if (!ip || ip === 'unknown') return next();
+
+      const username = this.ipUserMap.get(ip);
+      if (!username) return next();
+
+      const user = await this.userService.findByName(username);
+      if (!user || user.enabled === false) {
+        this.ipUserMap.delete(ip);
+        return next();
+      }
+
+      client.loggedIn = true;
+      client.accountName = username;
+      client.displayName = user.displayName || username;
+      return next();
+    });
 
     // /whoami - 查看登录状态
     this.koishiContextService
@@ -76,6 +101,8 @@ export class LoginService {
       client.accountName = username;
       client.displayName = customName || username;
 
+      this.recordAutoLoginIp(client, username);
+
       await client.sendChat(
         `注册成功！账号: ${username}  显示名: ${client.displayName}`,
         ChatColor.GREEN,
@@ -127,6 +154,8 @@ export class LoginService {
       client.loggedIn = true;
       client.accountName = username;
 
+      this.recordAutoLoginIp(client, username);
+
       if (customName) {
         client.displayName = customName;
         await this.userService.updateDisplayName(username, customName);
@@ -159,5 +188,13 @@ export class LoginService {
       }
       return next();
     });
+  }
+
+  /** 记录 IP，用于后续自动登录 */
+  private recordAutoLoginIp(client: { ip: string }, username: string) {
+    const ip = client.ip;
+    if (ip && ip !== 'unknown') {
+      this.ipUserMap.set(ip, username);
+    }
   }
 }
