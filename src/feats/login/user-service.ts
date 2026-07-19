@@ -8,6 +8,7 @@ export interface UserEntry {
   enabled?: boolean;
   permissions?: string;
   displayName?: string;
+  title?: string;
 }
 
 export class UserService {
@@ -91,6 +92,7 @@ export class UserService {
             enabled: user.enabled,
             permissions: user.permissions,
             displayName: user.displayName,
+            title: user.title,
           };
         }
         return undefined;
