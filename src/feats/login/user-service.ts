@@ -213,4 +213,43 @@ export class UserService {
       );
     }
   }
+
+  /** 根据 lastIp 查找用户 */
+  async findByIp(ip: string): Promise<{ accountName: string } | undefined> {
+    const repo = this.repo;
+    if (!repo) return undefined;
+    try {
+      const user = await repo.findOneBy({ lastIp: ip } as any);
+      return user ? { accountName: user.accountName } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 获取所有有 lastIp 的用户 */
+  async getAllWithIp(): Promise<{ accountName: string; lastIp: string }[]> {
+    const repo = this.repo;
+    if (!repo) return [];
+    try {
+      const users = await repo
+        .createQueryBuilder('user')
+        .select(['user.accountName', 'user.lastIp'])
+        .where("user.lastIp != ''")
+        .getMany();
+      return users.map((u: any) => ({ accountName: u.accountName, lastIp: u.lastIp }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** 更新用户的 lastIp */
+  async updateLastIp(accountName: string, ip: string): Promise<void> {
+    const repo = this.repo;
+    if (!repo) return;
+    try {
+      await repo.update({ accountName }, { lastIp: ip } as any);
+    } catch {
+      // ignore
+    }
+  }
 }

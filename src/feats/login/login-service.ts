@@ -17,7 +17,7 @@ export class LoginService {
   private koishiContextService = this.ctx.get(() => KoishiContextService);
   private userService = this.ctx.get(() => UserService);
 
-  /** IP → 用户名 自动登录映射（仅内存，重启清空） */
+  /** IP → 用户名 自动登录映射（启动时从DB恢复，登录时持久化到DB） */
   private ipUserMap = new Map<string, string>();
 
   constructor(private ctx: Context) {}
@@ -25,14 +25,26 @@ export class LoginService {
   async init() {
     const koishi = this.koishiContextService.instance;
 
-    // 进房自动登录：匹配 IP
+    // 启动时从数据库恢复 IP 映射
+    await this.loadIpMapFromDb();
+
+    // 进房自动登录：匹配 IP（优先查内存Map，兜底查DB）
     this.ctx.middleware(OnRoomJoin, async (_event, client, next) => {
       if (client.loggedIn) return next();
 
       const ip = client.ip;
       if (!ip || ip === 'unknown') return next();
 
-      const username = this.ipUserMap.get(ip);
+      let username = this.ipUserMap.get(ip);
+      if (!username) {
+        // 兜底：查数据库 lastIp
+        const user = await this.userService.findByIp(ip);
+        if (user) {
+          username = user.accountName;
+          this.ipUserMap.set(ip, username);
+        }
+      }
+
       if (!username) return next();
 
       const user = await this.userService.findByName(username);
@@ -179,10 +191,11 @@ export class LoginService {
     // 入房提示
     this.ctx.middleware(OnRoomJoin, async (_event, client, next) => {
       if (client.loggedIn) {
+        const room = _event.room;
         const name = client.displayName || client.accountName;
         const titleSuffix = client.title ? ` 🏆${client.title}` : '';
-        await client.sendChat(
-          `欢迎回来，${name}！${titleSuffix}`,
+        await room.sendChat(
+          `欢迎 ${name}${titleSuffix} 进入房间`,
           ChatColor.GREEN,
         );
       } else {
@@ -195,11 +208,23 @@ export class LoginService {
     });
   }
 
-  /** 记录 IP，用于后续自动登录 */
+  /** 从数据库加载所有 lastIp → username 映射 */
+  private async loadIpMapFromDb() {
+    const users = await this.userService.getAllWithIp();
+    for (const u of users) {
+      if (u.lastIp && u.lastIp !== 'unknown') {
+        this.ipUserMap.set(u.lastIp, u.accountName);
+      }
+    }
+    this.ctx.createLogger('LoginService').info(`Loaded ${this.ipUserMap.size} IP mappings from DB`);
+  }
+
+  /** 记录 IP 到内存和数据库 */
   private recordAutoLoginIp(client: { ip: string }, username: string) {
     const ip = client.ip;
     if (ip && ip !== 'unknown') {
       this.ipUserMap.set(ip, username);
+      this.userService.updateLastIp(username, ip).catch(() => {});
     }
   }
 }
