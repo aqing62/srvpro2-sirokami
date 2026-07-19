@@ -9,6 +9,7 @@ declare module '../../client' {
     loggedIn: boolean;
     accountName?: string;
     displayName?: string;
+    title?: string;
   }
 }
 
@@ -43,6 +44,7 @@ export class LoginService {
       client.loggedIn = true;
       client.accountName = username;
       client.displayName = user.displayName || username;
+      client.title = user.title || '';
       return next();
     });
 
@@ -100,6 +102,7 @@ export class LoginService {
       client.loggedIn = true;
       client.accountName = username;
       client.displayName = customName || username;
+      client.title = '';
 
       this.recordAutoLoginIp(client, username);
 
@@ -153,6 +156,7 @@ export class LoginService {
 
       client.loggedIn = true;
       client.accountName = username;
+      client.title = entry.title || '';
 
       this.recordAutoLoginIp(client, username);
 
@@ -176,8 +180,9 @@ export class LoginService {
     this.ctx.middleware(OnRoomJoin, async (_event, client, next) => {
       if (client.loggedIn) {
         const name = client.displayName || client.accountName;
+        const titleSuffix = client.title ? ` 🏆${client.title}` : '';
         await client.sendChat(
-          `欢迎回来，${name}！(账号: ${client.accountName})`,
+          `欢迎回来，${name}！${titleSuffix}`,
           ChatColor.GREEN,
         );
       } else {
