@@ -20,14 +20,13 @@ export class CDeckService {
   async init() {
     this.loadDecks();
 
+    // C 模式：进房时分配随机卡组，玩家手动开打
     this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
       const room = event.room;
       if (!room.hostinfo.random_deck) return next();
       if (room.duelStage !== DuelStage.Begin) return next();
 
-      room.noHost = true;
-
-      // 分配随机卡组（直接写入 client.deck，ocgcore 会使用这个卡组）
+      // 分配随机卡组
       const assigned = this.assignRandomDeck(room);
       if (!assigned) {
         await room.sendChat('卡组池为空，请联系管理员上传卡组');
@@ -42,20 +41,6 @@ export class CDeckService {
         `编年史模式：你获得了随机卡组「${assigned.name}」`,
         ChatColor.BABYBLUE,
       );
-
-      // 通知所有人该玩家已准备
-      const changeMsg = client.prepareChangePacket();
-      await Promise.all(
-        room.allPlayers.map((p) => p.send(changeMsg)),
-      );
-
-      // 双方到齐 → 直接开始游戏（跳过备牌，ocgcore 使用分配的随机卡组）
-      const allReady = room.playingPlayers.length === room.players.length
-        && room.playingPlayers.every((p) => p.deck);
-      if (allReady) {
-        this.logger.info(`Starting C mode game in room ${room.name}`);
-        await room.startGame();
-      }
 
       return next();
     });
