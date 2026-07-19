@@ -3,6 +3,7 @@ export * from './client-key-provider';
 export * from './chatgpt-service';
 export * from './block-replay';
 export * from './challonge-api';
+export * from './c-deck';
 export * from './challonge-service';
 export * from './cloud-replay';
 export * from './hide-player-name-provider';

@@ -373,6 +373,7 @@ export class CloudReplayService {
     record.messages = snapshot.messages;
     record.responses = snapshot.responses;
     record.seed = snapshot.seed;
+    record.isTournament = snapshot.name.startsWith('D#');
   }
 
   private buildPlayerRecordSnapshot(

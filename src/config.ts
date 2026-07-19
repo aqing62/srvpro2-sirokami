@@ -78,10 +78,10 @@ export const defaultConfig = {
   // OCGCore wasm file path. Format: filesystem path string. Empty means use default wasm loading.
   OCGCORE_WASM_PATH: '',
   // Welcome message sent when players join. Format: plain string.
-  WELCOME: '',
+  WELCOME: '欢迎来到白神服，官网：siro.ygopro3.cn了解更多信息',
   // Enable tips feature.
   // Boolean parse rule (default true): only '0'/'false'/'null' => false, otherwise true.
-  ENABLE_TIPS: '1',
+  ENABLE_TIPS: '0',
   // Remote URL for tips list. Empty means disabled.
   TIPS_GET: '',
   // Remote URL for zh tips list. Empty means disabled.

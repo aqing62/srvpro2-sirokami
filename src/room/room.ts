@@ -125,6 +125,7 @@ import {
 declare module 'ygopro-msg-encode' {
   export interface HostInfo {
     no_watch?: number;
+    random_deck?: number; // 1 = C mode: server picks random decks for players
   }
 }
 
@@ -802,7 +803,7 @@ export class Room {
       );
     } else {
       await this.win(
-        { player: 1 - this.getIngameDuelPos(client), type: 0x4 },
+        { player: 1 - this.getIngamePos(client), type: 0x4 },
         { forceWinMatch: 9 },
       );
     }
@@ -2231,7 +2232,7 @@ export class Room {
       return;
     }
     // TODO: teammate surrender in tag duel
-    return this.win({ player: 1 - this.getIngameDuelPos(client), type: 0x0 });
+    return this.win({ player: 1 - this.getIngamePos(client), type: 0x0 });
   }
 
   async getCurrentFieldInfo(): Promise<RoomCurrentFieldInfo> {

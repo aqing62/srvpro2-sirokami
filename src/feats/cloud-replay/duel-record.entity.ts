@@ -71,6 +71,9 @@ export class DuelRecordEntity extends BaseTimeEntity {
   @Column('bool', { default: true })
   valid = true; // 有效性标记，false表示不计分
 
+  @Column('bool', { default: false })
+  isTournament = false; // 是否为比赛房间（D#开头）的对局
+
   @Column({
     type: 'text',
   })

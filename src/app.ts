@@ -9,6 +9,7 @@ import { JoinHandlerModule } from './join-handlers/join-handler-module';
 import { RoomModule } from './room/room-module';
 import { SqljsFactory, SqljsLoader } from './services/sqljs';
 import { FeatsModule } from './feats/feats-module';
+import { CDeckModule } from './feats/c-deck/c-deck.module';
 import { MiddlewareRx } from './services/middleware-rx';
 import { TypeormFactory, TypeormLoader } from './services/typeorm';
 import { SSLFinder } from './services/ssl-finder';
@@ -56,6 +57,7 @@ export const app = core
   .use(TransportModule)
   .use(RoomModule)
   .use(FeatsModule)
+  .use(CDeckModule)
   .use(LegacyApiModule)
   .use(PreJoinModule)
   .use(PluginLoader())

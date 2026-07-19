@@ -10,6 +10,8 @@ import { decodeDeckBase64 } from '../cloud-replay/utility';
 import { User } from '../login/user.entity';
 
 const K_FACTOR = 32;
+const MAX_SAME_OPPONENT_STREAK = 5; // 同对手连胜上限，超过后不加分
+const MIN_UNIQUE_OPPONENTS = 3; // 排行榜最低对手多样性
 
 function loadCardMergeMap(): Record<number, number> {
   try {
@@ -49,12 +51,7 @@ export class LadderService {
       return next();
     });
 
-    // 启动时自动重算 ELO（基于 valid=true 的比赛记录）
-    setTimeout(() => {
-      this.recalculateAllRatings().catch((err) => {
-        this.ctx.createLogger('LadderService').error('Auto recalculate failed: ' + err);
-      });
-    }, 5000);
+    // 启动时不再自动重算，改为手动调用 POST /api/ladder/recalculate
 
     // /rating [玩家名] - 查看积分
     const koishi = this.koishiContextService.instance;
@@ -93,17 +90,23 @@ export class LadderService {
         return;
       }
 
-      await client.sendChat(
-        [
-          `=== ${rating.displayName || rating.accountName} ===`,
-          `积分: ${rating.rating}  (胜${rating.wins} 负${rating.losses} 平${rating.draws})`,
-          `胜率: ${rating.winRate}  总计: ${rating.totalDuels}场`,
-          rating.winStreak > 1
-            ? `连胜: ${rating.winStreak}场  最佳连胜: ${rating.bestStreak}场`
-            : `最佳连胜: ${rating.bestStreak}场`,
-        ].join('\n'),
-        ChatColor.GREEN,
+      const lines = [
+        `=== ${rating.displayName || rating.accountName} ===`,
+      ];
+      if (rating.probationGames > 0) {
+        lines.push(
+          `⚠️ 考察期剩余 ${rating.probationGames} 场（通过后进入排行榜）`,
+        );
+      }
+      lines.push(
+        `积分: ${rating.rating}  (胜${rating.wins} 负${rating.losses} 平${rating.draws})`,
+        `胜率: ${rating.winRate}  总计: ${rating.totalDuels}场`,
+        rating.winStreak > 1
+          ? `连胜: ${rating.winStreak}场  最佳连胜: ${rating.bestStreak}场`
+          : `最佳连胜: ${rating.bestStreak}场`,
+        `对手数: ${rating.uniqueOpponentCount}  (需${MIN_UNIQUE_OPPONENTS}名不同对手方可上榜)`,
       );
+      await client.sendChat(lines.join('\n'), ChatColor.GREEN);
     });
 
     // /ladder - 排行榜
@@ -120,10 +123,14 @@ export class LadderService {
       }
 
       const repo = this.ctx.database.getRepository(PlayerRating);
-      const top = await repo.find({
+      // 先查足够多，再过滤考察期和对手多样性
+      const all = await repo.find({
         order: { rating: 'DESC' },
-        take: 10,
+        take: 50,
       });
+      const top = all
+        .filter((p) => p.probationGames <= 0 && p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS)
+        .slice(0, 10);
 
       if (!top.length) {
         await client.sendChat('暂无天梯数据', ChatColor.YELLOW);
@@ -140,21 +147,21 @@ export class LadderService {
       // Show requester's position if not in top 10
       const myName = client.accountName;
       if (myName && !top.find((p) => p.accountName === myName)) {
-        const count = await repo.count();
         const myRating = await repo.findOne({ where: { accountName: myName } });
         if (myRating) {
-          const above = await repo.count({
-            where: {},
-            order: { rating: 'DESC' },
-          });
-          // Count players with higher rating
-          const higherCount = await repo
-            .createQueryBuilder('p')
-            .where('p.rating > :rating', { rating: myRating.rating })
-            .getCount();
-          lines.push(
-            `...\n第${higherCount + 1}名: ${myRating.displayName || myRating.accountName} - ${myRating.rating}分`,
-          );
+          // Count eligible players with higher rating
+          const eligibleAbove = all
+            .filter((p) => p.probationGames <= 0 && p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS && p.rating > myRating.rating)
+            .length;
+          if (myRating.probationGames <= 0 && myRating.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS) {
+            lines.push(
+              `...\n第${eligibleAbove + 1}名: ${myRating.displayName || myRating.accountName} - ${myRating.rating}分`,
+            );
+          } else {
+            lines.push(
+              `...\n你暂未满足上榜条件（考察期剩余${myRating.probationGames}场 / 对手数${myRating.uniqueOpponentCount}/${MIN_UNIQUE_OPPONENTS}）`,
+            );
+          }
         }
       }
 
@@ -181,10 +188,13 @@ export class LadderService {
           .getOne();
         players = player ? [player] : [];
       } else {
-        players = await repo.find({
+        const allPlayers = await repo.find({
           order: { rating: 'DESC' },
-          take: 50,
+          take: 100,
         });
+        players = allPlayers
+          .filter((p) => p.probationGames <= 0 && p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS)
+          .slice(0, 50);
       }
 
       koaCtx.body = {
@@ -600,17 +610,30 @@ export class LadderService {
         let s0: number, s1: number;
         if (result === 0) {
           s0 = 1; s1 = 0;
-          r0.win(); r1.lose();
         } else {
           s0 = 0; s1 = 1;
+        }
+
+        // 防小号：同对手连胜衰减 K 值
+        const winnerR = result === 0 ? r0 : r1;
+        const loserR = result === 0 ? r1 : r0;
+        const effectiveK = this.computeEffectiveK(winnerR, loserR.accountName);
+
+        if (result === 0) {
+          r0.win(); r1.lose();
+        } else {
           r0.lose(); r1.win();
         }
 
-        const change0 = Math.round(K_FACTOR * (s0 - e0));
-        const change1 = Math.round(K_FACTOR * (s1 - e1));
+        const change0 = Math.round(effectiveK * (s0 - e0));
+        const change1 = Math.round(effectiveK * (s1 - e1));
 
         r0.rating = Math.max(0, r0.rating + change0);
         r1.rating = Math.max(0, r1.rating + change1);
+
+        // 记录对手
+        r0.addOpponent(account1);
+        r1.addOpponent(account0);
 
         await ratingRepo.save([r0, r1]);
         processed++;
@@ -674,9 +697,15 @@ export class LadderService {
 
     // Calculate ELO
     const d0 = r1.rating - r0.rating;
-    const d1 = -d0;
     const e0 = 1 / (1 + Math.pow(10, d0 / 400));
     const e1 = 1 - e0;
+
+    // 防小号：同对手连胜衰减 K 值
+    const winnerR = result === 0 ? r0 : result === 1 ? r1 : null;
+    const loserR = result === 0 ? r1 : result === 1 ? r0 : null;
+    const effectiveK = winnerR && loserR
+      ? this.computeEffectiveK(winnerR, loserR.accountName)
+      : K_FACTOR;
 
     let s0: number, s1: number;
     if (result === -1) {
@@ -690,17 +719,38 @@ export class LadderService {
       r0.lose(); r1.win();
     }
 
-    const change0 = Math.round(K_FACTOR * (s0 - e0));
-    const change1 = Math.round(K_FACTOR * (s1 - e1));
+    const change0 = Math.round(effectiveK * (s0 - e0));
+    const change1 = Math.round(effectiveK * (s1 - e1));
 
     r0.rating = Math.max(0, r0.rating + change0);
     r1.rating = Math.max(0, r1.rating + change1);
+
+    // 记录对手（双方各自记录）
+    r0.addOpponent(p1.accountName!);
+    r1.addOpponent(p0.accountName!);
 
     await repo.save([r0, r1]);
   }
 
   private isMatchRoom(room: Room): boolean {
     return room.name.startsWith('M#');
+  }
+
+  /**
+   * 计算同对手连胜衰减后的有效 K 值。
+   * 同一对手连胜超过 MAX_SAME_OPPONENT_STREAK 场后 K=0，不再加分。
+   */
+  private computeEffectiveK(winner: PlayerRating, loserAccount: string): number {
+    if (winner.lastOpponent === loserAccount) {
+      winner.sameOpponentStreak++;
+    } else {
+      winner.lastOpponent = loserAccount;
+      winner.sameOpponentStreak = 1;
+    }
+    if (winner.sameOpponentStreak > MAX_SAME_OPPONENT_STREAK) {
+      return 0;
+    }
+    return K_FACTOR;
   }
 
   private async announceLadderMode(room: Room) {
