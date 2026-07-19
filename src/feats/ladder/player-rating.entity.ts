@@ -47,11 +47,6 @@ export class PlayerRating {
   @Column({ type: 'text', default: '[]' })
   uniqueOpponents = '[]'; // 历史对手 JSON 数组
 
-  // --- 赛季称号 ---
-
-  @Column({ type: 'varchar', length: 64, default: '' })
-  title = ''; // 天梯称号，如「S1冠军」「S1八强」，管理员手动赋值
-
   // ---
 
   win() {

@@ -90,11 +90,15 @@ export class LadderService {
         return;
       }
 
+      // 查 User 表获取称号
+      const userRepo = this.ctx.database.getRepository(User);
+      const user = await userRepo.findOne({ where: { accountName: rating.accountName } });
+
       const lines = [
         `=== ${rating.displayName || rating.accountName} ===`,
       ];
-      if (rating.title) {
-        lines.push(`🏆 称号: ${rating.title}`);
+      if (user?.title) {
+        lines.push(`🏆 称号: ${user.title}`);
       }
       if (rating.probationGames > 0) {
         lines.push(

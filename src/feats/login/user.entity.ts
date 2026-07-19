@@ -21,4 +21,7 @@ export class User extends BaseTimeEntity {
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   displayName?: string;
+
+  @Column({ type: 'varchar', length: 64, default: '' })
+  title = ''; // 天梯称号，如「S1冠军」，管理员手动赋值
 }
