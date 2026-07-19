@@ -93,6 +93,9 @@ export class LadderService {
       const lines = [
         `=== ${rating.displayName || rating.accountName} ===`,
       ];
+      if (rating.title) {
+        lines.push(`🏆 称号: ${rating.title}`);
+      }
       if (rating.probationGames > 0) {
         lines.push(
           `⚠️ 考察期剩余 ${rating.probationGames} 场（通过后进入排行榜）`,
