@@ -496,6 +496,58 @@ export class LadderService {
         koaCtx.body = { error: (err as Error).message };
       }
     });
+
+    // POST /api/ladder/reset — 新赛季：清空积分 + 废弃全部录像
+    this.ctx.router.post('/api/ladder/reset', async (koaCtx) => {
+      const ok = await this.ctx.legacyApiAuth.auth(
+        String(koaCtx.query.username || ''),
+        String(koaCtx.query.pass || koaCtx.query.password || ''),
+        'recalculate_rating',
+        'recalculate_rating',
+      );
+      if (!ok) {
+        koaCtx.status = 403;
+        koaCtx.body = { error: '权限不足' };
+        return;
+      }
+      try {
+        const result = await this.resetSeason();
+        koaCtx.body = result;
+      } catch (err) {
+        koaCtx.status = 500;
+        koaCtx.body = { error: (err as Error).message };
+      }
+    });
+  }
+
+  /**
+   * 新赛季重置：清空积分 + 废弃全部比赛记录
+   */
+  private async resetSeason(): Promise<{ ratingsCleared: number; recordsArchived: number }> {
+    const database = this.ctx.database;
+    if (!database) throw new Error('数据库未启用');
+
+    const duelRepo = database.getRepository(DuelRecordEntity);
+    const ratingRepo = database.getRepository(PlayerRating);
+    const logger = this.ctx.createLogger('ResetSeason');
+
+    // 清空积分
+    const ratings = await ratingRepo.find();
+    const ratingsCleared = ratings.length;
+    await ratingRepo.clear();
+    logger.info(`Cleared ${ratingsCleared} player_rating records`);
+
+    // 废弃全部录像
+    const result = await duelRepo
+      .createQueryBuilder()
+      .update()
+      .set({ valid: false })
+      .where('valid = true')
+      .execute();
+    const recordsArchived = result.affected || 0;
+    logger.info(`Archived ${recordsArchived} duel records`);
+
+    return { ratingsCleared, recordsArchived };
   }
 
   /**
