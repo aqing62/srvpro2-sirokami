@@ -1,7 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import YGOProDeck from 'ygopro-deck-encode';
-import { ChatColor } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { OnRoomPlayerReady } from '../../room/room-event/on-room-player-ready';
 import { DuelStage } from '../../room/duel-stage';
@@ -37,10 +36,6 @@ export class CDeckService {
       client.startDeck = assigned;
 
       this.logger.info(`${client.name} assigned deck "${assigned.name}" in room ${room.name}`);
-      await client.sendChat(
-        `编年史模式：你获得了随机卡组「${assigned.name}」`,
-        ChatColor.BABYBLUE,
-      );
 
       return next();
     });
