@@ -4,12 +4,14 @@ import YGOProDeck from 'ygopro-deck-encode';
 import { ChatColor, YGOProStocChangeSide } from 'ygopro-msg-encode';
 import { Context } from '../../app';
 import { OnRoomJoinPlayer } from '../../room/room-event/on-room-join-player';
+import { OnRoomPlayerReady } from '../../room/room-event/on-room-player-ready';
 import { DuelStage } from '../../room/duel-stage';
 
 const DECKS_DIR = './decks-c/';
 
 export class CDeckService {
   private decks: YGOProDeck[] = [];
+  private assignedDecks = new Map<string, YGOProDeck>(); // roomName:pos → deck
 
   constructor(private ctx: Context) {}
 
@@ -20,14 +22,21 @@ export class CDeckService {
   async init() {
     this.loadDecks();
 
+    // 玩家进房：标记 noHost
     this.ctx.middleware(OnRoomJoinPlayer, async (event, client, next) => {
+      const room = event.room;
+      if (!room.hostinfo.random_deck) return next();
+      room.noHost = true;
+      return next();
+    });
+
+    // 玩家提交卡组后：替换为随机卡组，双方就位则进备牌
+    this.ctx.middleware(OnRoomPlayerReady, async (event, client, next) => {
       const room = event.room;
       if (!room.hostinfo.random_deck) return next();
       if (room.duelStage !== DuelStage.Begin) return next();
 
-      room.noHost = true;
-
-      // 分配随机卡组
+      // 分配随机卡组（替换客户端提交的卡组）
       const assigned = this.assignRandomDeck(room);
       if (assigned) {
         client.deck = assigned;
@@ -39,19 +48,19 @@ export class CDeckService {
         );
       }
 
-      // 通知所有玩家
+      // 更新玩家的 ready 状态
       const changeMsg = client.prepareChangePacket();
       await Promise.all(
         room.allPlayers.map((p) => p.send(changeMsg)),
       );
 
-      // 双方到齐 → 进入备牌阶段
+      // 双方都 ready → 进入备牌阶段
       const allReady = room.playingPlayers.length === room.players.length
         && room.playingPlayers.every((p) => p.deck);
-      if (allReady && room.duelStage === DuelStage.Begin) {
+      if (allReady) {
         room.duelStage = DuelStage.Siding;
         for (const p of room.playingPlayers) {
-          p.startDeck = p.deck; // 保留分配的卡组作为基准
+          p.startDeck = p.deck;
           p.deck = undefined;
         }
         await Promise.all(
@@ -59,9 +68,7 @@ export class CDeckService {
             p.send(new YGOProStocChangeSide()),
           ),
         );
-        await room.sendChat(
-          '双方已获得随机卡组，请在 90 秒内调整备牌后提交',
-        );
+        await room.sendChat('双方已获得随机卡组，请在 90 秒内调整备牌后提交');
       }
 
       return next();
