@@ -10,9 +10,12 @@ import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
 import { decodeDeckBase64 } from '../cloud-replay/utility';
 import { User } from '../login/user.entity';
 
-const K_FACTOR = 32;
-const MAX_SAME_OPPONENT_STREAK = 5; // 同对手连胜上限，超过后不加分
-const MIN_UNIQUE_OPPONENTS = 3; // 排行榜最低对手多样性
+const WIN_POINTS = 10;               // 胜利基础分
+const DRAW_POINTS = 3;               // 平局得分
+const WIN_BONUS_MAX = 5;             // 对手分高时的额外加分上限
+const MAX_SAME_OPPONENT_STREAK = 5;  // 同对手连胜上限，超过后不加分
+const MIN_UNIQUE_OPPONENTS = 3;      // 排行榜最低对手多样性
+const DIY_RATING = 150;              // DIY 投稿资格分数
 
 function loadCardMergeMap(): Record<number, number> {
   try {
@@ -107,6 +110,14 @@ export class LadderService {
           `⚠️ 考察期剩余 ${rating.probationGames} 场（通过后进入排行榜）`,
         );
       }
+
+      // 段位
+      const cutoffs = await this.getTierCutoffs();
+      const tierName = this.getTierName(rating.rating, rating.totalDuels, cutoffs);
+      if (tierName) {
+        lines.push(`段位: ${tierName}`);
+      }
+
       lines.push(
         `积分: ${rating.rating}  (胜${rating.wins} 负${rating.losses} 平${rating.draws})`,
         `胜率: ${rating.winRate}  总计: ${rating.totalDuels}场`,
@@ -146,12 +157,24 @@ export class LadderService {
         return;
       }
 
+      const cutoffs = await this.getTierCutoffs();
+
       const lines = ['=== 天梯排行榜 TOP10 ==='];
       top.forEach((p, i) => {
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
         const name = p.displayName || p.accountName;
-        lines.push(`${medal} ${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)`);
+        const tier = this.getTierName(p.rating, p.totalDuels, cutoffs);
+        const tierTag = tier ? `[${tier.replace('S1 ', '')}] ` : '';
+        lines.push(`${medal} ${tierTag}${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)`);
       });
+
+      // 段位门槛
+      if (cutoffs.length) {
+        lines.push('--- 段位门槛（活跃玩家百分比） ---');
+        for (const tier of cutoffs) {
+          lines.push(`${tier.name}: ≥${tier.minRating}分`);
+        }
+      }
 
       // Show requester's position if not in top 10
       const myName = client.accountName;
@@ -206,21 +229,28 @@ export class LadderService {
           .slice(0, 50);
       }
 
+      const cutoffs = await this.getTierCutoffs();
+
       koaCtx.body = {
-        players: players.map((p) => ({
-          name: p.displayName || p.accountName,
-          rating: p.rating,
-          wins: p.wins,
-          losses: p.losses,
-          draws: p.draws,
-          total: p.totalDuels,
-          streak: p.winStreak,
-          bestStreak: p.bestStreak,
-          winRate: p.totalDuels > 0
-            ? ((p.wins / p.totalDuels) * 100).toFixed(1) + '%'
-            : '0%',
-        })),
+        players: players.map((p) => {
+          const tier = this.getTierName(p.rating, p.totalDuels, cutoffs);
+          return {
+            name: p.displayName || p.accountName,
+            rating: p.rating,
+            wins: p.wins,
+            losses: p.losses,
+            draws: p.draws,
+            total: p.totalDuels,
+            streak: p.winStreak,
+            bestStreak: p.bestStreak,
+            tier: tier || null,
+            winRate: p.totalDuels > 0
+              ? ((p.wins / p.totalDuels) * 100).toFixed(1) + '%'
+              : '0%',
+          };
+        }),
         total: players.length,
+        tierCutoffs: cutoffs.map((t) => ({ name: t.name, minRating: t.minRating })),
       };
     });
 
@@ -664,34 +694,21 @@ export class LadderService {
         r0.displayName = p0.realName;
         r1.displayName = p1.realName;
 
-        // ELO calculation (exact same as processDuelResult)
-        const d0 = r1.rating - r0.rating;
-        const e0 = 1 / (1 + Math.pow(10, d0 / 400));
-        const e1 = 1 - e0;
-
-        let s0: number, s1: number;
+        // 纯正向积分计算（与 processDuelResult 一致）
+        let points0: number;
+        let points1: number;
         if (result === 0) {
-          s0 = 1; s1 = 0;
-        } else {
-          s0 = 0; s1 = 1;
-        }
-
-        // 防小号：同对手连胜衰减 K 值
-        const winnerR = result === 0 ? r0 : r1;
-        const loserR = result === 0 ? r1 : r0;
-        const effectiveK = this.computeEffectiveK(winnerR, loserR.accountName);
-
-        if (result === 0) {
+          points0 = this.getWinPoints(r0, account1, r1.rating);
+          points1 = 0;
           r0.win(); r1.lose();
         } else {
+          points0 = 0;
+          points1 = this.getWinPoints(r1, account0, r0.rating);
           r0.lose(); r1.win();
         }
 
-        const change0 = Math.round(effectiveK * (s0 - e0));
-        const change1 = Math.round(effectiveK * (s1 - e1));
-
-        r0.rating = Math.max(0, r0.rating + change0);
-        r1.rating = Math.max(0, r1.rating + change1);
+        r0.rating = Math.max(0, r0.rating + points0);
+        r1.rating = Math.max(0, r1.rating + points1);
 
         // 记录对手
         r0.addOpponent(account1);
@@ -757,35 +774,30 @@ export class LadderService {
       : (room.isPosSwapped ? winPlayer !== 0 : winPlayer === 0) ? 0
       : 1;
 
-    // Calculate ELO
-    const d0 = r1.rating - r0.rating;
-    const e0 = 1 / (1 + Math.pow(10, d0 / 400));
-    const e1 = 1 - e0;
+    // 计算得分（纯正向，输不掉分）
+    const oldRating0 = r0.rating;
+    const oldDuels0 = r0.totalDuels;
+    const oldRating1 = r1.rating;
+    const oldDuels1 = r1.totalDuels;
 
-    // 防小号：同对手连胜衰减 K 值
-    const winnerR = result === 0 ? r0 : result === 1 ? r1 : null;
-    const loserR = result === 0 ? r1 : result === 1 ? r0 : null;
-    const effectiveK = winnerR && loserR
-      ? this.computeEffectiveK(winnerR, loserR.accountName)
-      : K_FACTOR;
-
-    let s0: number, s1: number;
+    let points0: number;
+    let points1: number;
     if (result === -1) {
-      s0 = 0.5; s1 = 0.5;
+      points0 = DRAW_POINTS;
+      points1 = DRAW_POINTS;
       r0.draw(); r1.draw();
     } else if (result === 0) {
-      s0 = 1; s1 = 0;
+      points0 = this.getWinPoints(r0, p1.accountName!, r1.rating);
+      points1 = 0;
       r0.win(); r1.lose();
     } else {
-      s0 = 0; s1 = 1;
+      points0 = 0;
+      points1 = this.getWinPoints(r1, p0.accountName!, r0.rating);
       r0.lose(); r1.win();
     }
 
-    const change0 = Math.round(effectiveK * (s0 - e0));
-    const change1 = Math.round(effectiveK * (s1 - e1));
-
-    r0.rating = Math.max(0, r0.rating + change0);
-    r1.rating = Math.max(0, r1.rating + change1);
+    r0.rating = Math.max(0, r0.rating + points0);
+    r1.rating = Math.max(0, r1.rating + points1);
 
     // 每日首胜 +2
     const dailyBonus = 2;
@@ -802,44 +814,92 @@ export class LadderService {
     r0.addOpponent(p1.accountName!);
     r1.addOpponent(p0.accountName!);
 
-    // 检查段位升级（快照旧分数，不含每日奖励）
-    const oldR0 = { rating: r0.rating - change0 - (result === 0 && r0.lastDuelAt?.toDateString() !== today ? dailyBonus : 0), duels: r0.totalDuels - 1 };
-    const oldR1 = { rating: r1.rating - change1 - (result === 1 && r1.lastDuelAt?.toDateString() !== today ? dailyBonus : 0), duels: r1.totalDuels - 1 };
     await repo.save([r0, r1]);
 
-    await this.checkTierUpgrade(r0, oldR0, p0);
-    await this.checkTierUpgrade(r1, oldR1, p1);
+    // 检查段位升级 + DIY 投稿资格
+    await this.checkTierUpgrade(
+      r0, { rating: oldRating0, duels: oldDuels0 }, p0,
+    );
+    await this.checkTierUpgrade(
+      r1, { rating: oldRating1, duels: oldDuels1 }, p1,
+    );
   }
 
-  private readonly TIERS = [
-    { name: 'S1 参战者', minDuels: 10, minRating: 0 },
-    { name: 'S1 白银',   minDuels: 10, minRating: 1021 },
-    { name: 'S1 黄金',   minDuels: 20, minRating: 1051 },
-    { name: 'S1 钻石',   minDuels: 50, minRating: 1101 },
-    { name: 'S1 大师',   minDuels: 100, minRating: 1201 },
+  // 段位百分比（从高到低），最后一项 pct=1.00 兜底
+  private readonly TIER_PERCENTILES = [
+    { name: 'S1 大师', pct: 0.08 },
+    { name: 'S1 钻石', pct: 0.18 },
+    { name: 'S1 黄金', pct: 0.35 },
+    { name: 'S1 白银', pct: 0.60 },
+    { name: 'S1 参战者', pct: 1.00 },
   ];
+
+  /**
+   * 获取当前各段位的分数线。
+   * 活跃玩家 = 总场次 ≥10 且近7天有对局。
+   */
+  async getTierCutoffs(): Promise<{ name: string; minRating: number }[]> {
+    const database = this.ctx.database;
+    if (!database) return [];
+
+    const repo = database.getRepository(PlayerRating);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const active = await repo
+      .createQueryBuilder('p')
+      .where('p.totalDuels >= 10')
+      .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
+      .orderBy('p.rating', 'DESC')
+      .getMany();
+
+    if (!active.length) return [];
+
+    return this.TIER_PERCENTILES.map((tier) => {
+      const idx = Math.max(0, Math.ceil(active.length * tier.pct) - 1);
+      return { name: tier.name, minRating: active[idx]?.rating ?? 0 };
+    });
+  }
+
+  /**
+   * 根据分数和场次判断当前段位名，不满足条件返回 null。
+   */
+  getTierName(
+    rating: number,
+    duels: number,
+    cutoffs: { name: string; minRating: number }[],
+  ): string | null {
+    if (duels < 10 || !cutoffs.length) return null;
+    for (const tier of cutoffs) {
+      if (rating >= tier.minRating) return tier.name;
+    }
+    return null;
+  }
 
   private async checkTierUpgrade(
     rating: PlayerRating,
     old: { rating: number; duels: number },
     client: Client,
   ) {
-    for (const tier of this.TIERS) {
-      const newOk = rating.totalDuels >= tier.minDuels && rating.rating >= tier.minRating;
-      const oldMissing = old.duels < tier.minDuels || old.rating < tier.minRating;
-      if (newOk && oldMissing) {
-        await client.sendChat(
-          `🎉 恭喜！你已达成「${tier.name}」段位！`,
-          ChatColor.YELLOW,
-        );
-        if (tier.name === 'S1 黄金') {
-          await client.sendChat(
-            '📝 你已获得 DIY 投稿资格，联系群主提交卡稿吧！',
-            ChatColor.YELLOW,
-          );
-        }
-        break;
-      }
+    const cutoffs = await this.getTierCutoffs();
+    if (!cutoffs.length) return;
+
+    const newTier = this.getTierName(rating.rating, rating.totalDuels, cutoffs);
+    const oldTier = this.getTierName(old.rating, old.duels, cutoffs);
+
+    // 段位晋升提示
+    if (newTier && newTier !== oldTier) {
+      await client.sendChat(
+        `🎉 恭喜！你已达成「${newTier}」段位！`,
+        ChatColor.YELLOW,
+      );
+    }
+
+    // DIY 投稿资格提示（积分 ≥1150）
+    if (old.rating < DIY_RATING && rating.rating >= DIY_RATING) {
+      await client.sendChat(
+        '📝 你已获得 DIY 投稿资格（积分≥1150），联系群主提交卡稿吧！',
+        ChatColor.YELLOW,
+      );
     }
   }
 
@@ -848,10 +908,10 @@ export class LadderService {
   }
 
   /**
-   * 计算同对手连胜衰减后的有效 K 值。
-   * 同一对手连胜超过 MAX_SAME_OPPONENT_STREAK 场后 K=0，不再加分。
+   * 计算胜者得分：基础分 + 对手分高奖励（上限 WIN_BONUS_MAX）。
+   * 同一对手连胜超过 MAX_SAME_OPPONENT_STREAK 场后返回 0，不再加分。
    */
-  private computeEffectiveK(winner: PlayerRating, loserAccount: string): number {
+  private getWinPoints(winner: PlayerRating, loserAccount: string, loserRating: number): number {
     if (winner.lastOpponent === loserAccount) {
       winner.sameOpponentStreak++;
     } else {
@@ -861,7 +921,11 @@ export class LadderService {
     if (winner.sameOpponentStreak > MAX_SAME_OPPONENT_STREAK) {
       return 0;
     }
-    return K_FACTOR;
+    const bonus = Math.max(0, Math.min(
+      Math.floor((loserRating - winner.rating) / 100),
+      WIN_BONUS_MAX,
+    ));
+    return WIN_POINTS + bonus;
   }
 
   private async announceLadderMode(room: Room) {
@@ -878,7 +942,7 @@ export class LadderService {
     const name0 = p0.displayName || p0.accountName;
     const name1 = p1.displayName || p1.accountName;
 
-    let r0 = 1000, r1 = 1000;
+    let r0 = 0, r1 = 0;
     const database = this.ctx.database;
     if (database) {
       const repo = database.getRepository(PlayerRating);

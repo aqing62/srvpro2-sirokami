@@ -9,8 +9,8 @@ export class PlayerRating {
   displayName!: string;
 
   @Index()
-  @Column('int', { default: 1000 })
-  rating = 1000;
+  @Column('int', { default: 0 })
+  rating = 0;
 
   @Column('int', { default: 0 })
   wins = 0;
@@ -35,8 +35,8 @@ export class PlayerRating {
 
   // --- 防小号刷分字段 ---
 
-  @Column('int', { default: 10 })
-  probationGames = 10; // 考察期剩余场数，0=通过
+  @Column('int', { default: 5 })
+  probationGames = 5; // 考察期剩余场数，0=通过
 
   @Column({ type: 'varchar', length: 64, default: '' })
   lastOpponent = ''; // 上一局对手 accountName
