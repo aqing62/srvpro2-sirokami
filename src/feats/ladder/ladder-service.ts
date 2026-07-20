@@ -1,6 +1,7 @@
 import { ChatColor } from 'ygopro-msg-encode';
 import * as fs from 'node:fs';
 import { Context } from '../../app';
+import { Client } from '../../client';
 import { OnRoomWin, OnRoomGameStart, OnRoomPlayerReady, Room, DuelStage } from '../../room';
 import { KoishiContextService } from '../../koishi/koishi-context-service';
 import { PlayerRating } from './player-rating.entity';
