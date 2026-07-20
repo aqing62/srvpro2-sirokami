@@ -801,11 +801,11 @@ export class LadderService {
   }
 
   private readonly TIERS = [
-    { name: 'S1 参战者', minDuels: 10, minRating: 1000 },
-    { name: 'S1 白银',   minDuels: 10, minRating: 1020 },
-    { name: 'S1 黄金',   minDuels: 20, minRating: 1050 },
-    { name: 'S1 钻石',   minDuels: 50, minRating: 1100 },
-    { name: 'S1 大师',   minDuels: 100, minRating: 1200 },
+    { name: 'S1 参战者', minDuels: 10, minRating: 0 },
+    { name: 'S1 白银',   minDuels: 10, minRating: 1021 },
+    { name: 'S1 黄金',   minDuels: 20, minRating: 1051 },
+    { name: 'S1 钻石',   minDuels: 50, minRating: 1101 },
+    { name: 'S1 大师',   minDuels: 100, minRating: 1201 },
   ];
 
   private async checkTierUpgrade(
