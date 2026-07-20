@@ -10,6 +10,7 @@ declare module '../../client' {
     accountName?: string;
     displayName?: string;
     title?: string;
+    ladderTitle?: string;
   }
 }
 
@@ -57,6 +58,7 @@ export class LoginService {
       client.accountName = username;
       client.displayName = user.displayName || username;
       client.title = user.title || '';
+      client.ladderTitle = user.ladderTitle || '';
       return next();
     });
 
@@ -115,6 +117,7 @@ export class LoginService {
       client.accountName = username;
       client.displayName = customName || username;
       client.title = '';
+      client.ladderTitle = '';
 
       this.recordAutoLoginIp(client, username);
 
@@ -169,6 +172,7 @@ export class LoginService {
       client.loggedIn = true;
       client.accountName = username;
       client.title = entry.title || '';
+      client.ladderTitle = entry.ladderTitle || '';
 
       this.recordAutoLoginIp(client, username);
 
@@ -193,9 +197,12 @@ export class LoginService {
       if (client.loggedIn) {
         const room = _event.room;
         const name = client.displayName || client.accountName;
-        const titleSuffix = client.title ? ` 🏆${client.title}` : '';
+        const badges: string[] = [];
+        if (client.ladderTitle) badges.push(client.ladderTitle);
+        if (client.title) badges.push(client.title);
+        const suffix = badges.length ? ` 🏆${badges.join(' · ')}` : '';
         await room.sendChat(
-          `欢迎 ${name}${titleSuffix} 进入房间`,
+          `欢迎 ${name}${suffix} 进入房间`,
           ChatColor.GREEN,
         );
       } else {

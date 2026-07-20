@@ -9,6 +9,7 @@ export interface UserEntry {
   permissions?: string;
   displayName?: string;
   title?: string;
+  ladderTitle?: string;
 }
 
 export class UserService {
@@ -93,6 +94,7 @@ export class UserService {
             permissions: user.permissions,
             displayName: user.displayName,
             title: user.title,
+            ladderTitle: user.ladderTitle,
           };
         }
         return undefined;

@@ -97,8 +97,9 @@ export class LadderService {
       const lines = [
         `=== ${rating.displayName || rating.accountName} ===`,
       ];
-      if (user?.title) {
-        lines.push(`🏆 称号: ${user.title}`);
+      if (user?.ladderTitle || user?.title) {
+        const badges = [user.ladderTitle, user.title].filter(Boolean).join(' · ');
+        lines.push(`🏆 ${badges}`);
       }
       if (rating.probationGames > 0) {
         lines.push(

@@ -23,7 +23,10 @@ export class User extends BaseTimeEntity {
   displayName?: string;
 
   @Column({ type: 'varchar', length: 64, default: '' })
-  title = ''; // 天梯称号，如「S1冠军」，管理员手动赋值
+  title = ''; // 通用称号（比赛等，管理员手动赋值）
+
+  @Column({ type: 'varchar', length: 64, default: '' })
+  ladderTitle = ''; // 天梯赛季称号，如「S1 钻石」，赛季末结算
 
   @Column({ type: 'varchar', length: 64, default: '' })
   lastIp = ''; // 最近登录IP，用于自动登录恢复
