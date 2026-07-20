@@ -787,13 +787,24 @@ export class LadderService {
     r0.rating = Math.max(0, r0.rating + change0);
     r1.rating = Math.max(0, r1.rating + change1);
 
+    // 每日首胜 +2
+    const dailyBonus = 2;
+    const today = new Date().toDateString();
+    if (result === 0 && r0.lastDuelAt?.toDateString() !== today) {
+      r0.rating = Math.max(0, r0.rating + dailyBonus);
+      await p0.sendChat('☀️ 每日首胜 +2！', ChatColor.YELLOW);
+    } else if (result === 1 && r1.lastDuelAt?.toDateString() !== today) {
+      r1.rating = Math.max(0, r1.rating + dailyBonus);
+      await p1.sendChat('☀️ 每日首胜 +2！', ChatColor.YELLOW);
+    }
+
     // 记录对手（双方各自记录）
     r0.addOpponent(p1.accountName!);
     r1.addOpponent(p0.accountName!);
 
-    // 检查段位升级
-    const oldR0 = { rating: r0.rating - change0, duels: r0.totalDuels - 1 };
-    const oldR1 = { rating: r1.rating - change1, duels: r1.totalDuels - 1 };
+    // 检查段位升级（快照旧分数，不含每日奖励）
+    const oldR0 = { rating: r0.rating - change0 - (result === 0 && r0.lastDuelAt?.toDateString() !== today ? dailyBonus : 0), duels: r0.totalDuels - 1 };
+    const oldR1 = { rating: r1.rating - change1 - (result === 1 && r1.lastDuelAt?.toDateString() !== today ? dailyBonus : 0), duels: r1.totalDuels - 1 };
     await repo.save([r0, r1]);
 
     await this.checkTierUpgrade(r0, oldR0, p0);
