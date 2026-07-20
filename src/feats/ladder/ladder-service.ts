@@ -790,7 +790,45 @@ export class LadderService {
     r0.addOpponent(p1.accountName!);
     r1.addOpponent(p0.accountName!);
 
+    // 检查段位升级
+    const oldR0 = { rating: r0.rating - change0, duels: r0.totalDuels - 1 };
+    const oldR1 = { rating: r1.rating - change1, duels: r1.totalDuels - 1 };
     await repo.save([r0, r1]);
+
+    await this.checkTierUpgrade(r0, oldR0, p0);
+    await this.checkTierUpgrade(r1, oldR1, p1);
+  }
+
+  private readonly TIERS = [
+    { name: 'S1 参战者', minDuels: 10, minRating: 1000 },
+    { name: 'S1 白银',   minDuels: 10, minRating: 1020 },
+    { name: 'S1 黄金',   minDuels: 20, minRating: 1050 },
+    { name: 'S1 钻石',   minDuels: 50, minRating: 1100 },
+    { name: 'S1 大师',   minDuels: 100, minRating: 1200 },
+  ];
+
+  private async checkTierUpgrade(
+    rating: PlayerRating,
+    old: { rating: number; duels: number },
+    client: Client,
+  ) {
+    for (const tier of this.TIERS) {
+      const newOk = rating.totalDuels >= tier.minDuels && rating.rating >= tier.minRating;
+      const oldMissing = old.duels < tier.minDuels || old.rating < tier.minRating;
+      if (newOk && oldMissing) {
+        await client.sendChat(
+          `🎉 恭喜！你已达成「${tier.name}」段位！`,
+          ChatColor.YELLOW,
+        );
+        if (tier.name === 'S1 黄金') {
+          await client.sendChat(
+            '📝 你已获得 DIY 投稿资格，联系群主提交卡稿吧！',
+            ChatColor.YELLOW,
+          );
+        }
+        break;
+      }
+    }
   }
 
   private isMatchRoom(room: Room): boolean {
