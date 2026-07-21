@@ -4,7 +4,9 @@ import {
   OcgcoreMessageType,
   OcgcoreWrapper,
   createOcgcoreWrapper,
-  DirScriptReaderEx,
+  DirScriptReader,
+  ZipScriptReader,
+  searchYGOProYpk,
   _OcgcoreConstants,
   parseCardQuery,
   parseFieldCardQuery,
@@ -112,8 +114,17 @@ export class OcgcoreWorker {
       await this.handleMessage(message, type);
     });
 
-    // Load script reader and card reader
-    const scriptReader = await DirScriptReaderEx(...this.options.ygoproPaths);
+    // Load script reader: YPK (DIY) 优先于 filesystem (base)
+    const fsReader = DirScriptReader(...this.options.ygoproPaths);
+    const ypkInputs: Uint8Array[] = [];
+    for await (const ypkBytes of searchYGOProYpk(...this.options.ygoproPaths)) {
+      ypkInputs.push(ypkBytes);
+    }
+    let scriptReader = fsReader;
+    if (ypkInputs.length > 0) {
+      const zipReader = await ZipScriptReader(...ypkInputs);
+      scriptReader = (path: string) => zipReader(path) ?? fsReader(path);
+    }
     const cardReader = this.options.cardStorage.toCardReader();
     this.ocgcore.setScriptReader(scriptReader);
     this.ocgcore.setCardReader(cardReader);

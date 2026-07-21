@@ -280,7 +280,7 @@ export class LadderService {
       const records = await recordRepo
         .createQueryBuilder('record')
         .leftJoinAndSelect('record.players', 'player')
-        .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
+        .where('(record.name LIKE :rp1 OR record.name LIKE :rp2)', { rp1: 'M#%', rp2: '%,RANDOM#%' })
         .andWhere('record.winReason IS NOT NULL')
         .andWhere('record.valid = true')
         .andWhere(
@@ -355,7 +355,7 @@ export class LadderService {
       const records = await recordRepo
         .createQueryBuilder('record')
         .leftJoinAndSelect('record.players', 'player')
-        .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
+        .where('(record.name LIKE :rp1 OR record.name LIKE :rp2)', { rp1: 'M#%', rp2: '%,RANDOM#%' })
         .andWhere('record.winReason IS NOT NULL')
         .andWhere('record.valid = true')
         .orderBy('record.endTime', 'DESC')
@@ -460,7 +460,7 @@ export class LadderService {
       const records = await recordRepo
         .createQueryBuilder('record')
         .leftJoinAndSelect('record.players', 'player')
-        .where('record.name LIKE :roomPattern', { roomPattern: 'M#%' })
+        .where('(record.name LIKE :rp1 OR record.name LIKE :rp2)', { rp1: 'M#%', rp2: '%,RANDOM#%' })
         .andWhere('record.winReason IS NOT NULL')
         .andWhere('record.valid = true')
         .andWhere(
@@ -618,7 +618,7 @@ export class LadderService {
     const records = await duelRepo
       .createQueryBuilder('record')
       .leftJoinAndSelect('record.players', 'player')
-      .where('record.name LIKE :pattern', { pattern: 'M#%' })
+      .where('(record.name LIKE :rp1 OR record.name LIKE :rp2)', { rp1: 'M#%', rp2: '%,RANDOM#%' })
       .andWhere('record.winReason IS NOT NULL')
       .andWhere('record.valid = true')
       .orderBy('record.endTime', 'ASC')
@@ -745,6 +745,12 @@ export class LadderService {
     // 排除 bot（名字以特殊标记或 isInternal）
     if (p0.isInternal || p1.isInternal) return;
 
+    // 排除自己打自己
+    if (p0.accountName === p1.accountName) return;
+
+    // 排除同 IP
+    if (p0.ip && p1.ip && p0.ip === p1.ip) return;
+
     const database = this.ctx.database;
     if (!database) return;
 
@@ -823,6 +829,20 @@ export class LadderService {
     await this.checkTierUpgrade(
       r1, { rating: oldRating1, duels: oldDuels1 }, p1,
     );
+
+    // 定级赛进度提示
+    if (r0.probationGames > 0) {
+      await p0.sendChat(
+        `📋 定级赛进行中，还剩 ${r0.probationGames} 场即可上榜`,
+        ChatColor.YELLOW,
+      );
+    }
+    if (r1.probationGames > 0) {
+      await p1.sendChat(
+        `📋 定级赛进行中，还剩 ${r1.probationGames} 场即可上榜`,
+        ChatColor.YELLOW,
+      );
+    }
   }
 
   // 段位百分比（从高到低），最后一项 pct=1.00 兜底
@@ -836,7 +856,7 @@ export class LadderService {
 
   /**
    * 获取当前各段位的分数线。
-   * 活跃玩家 = 总场次 ≥10 且近7天有对局。
+   * 活跃玩家 = 已通过定级赛 且 近7天有对局。
    */
   async getTierCutoffs(): Promise<{ name: string; minRating: number }[]> {
     const database = this.ctx.database;
@@ -847,7 +867,7 @@ export class LadderService {
 
     const active = await repo
       .createQueryBuilder('p')
-      .where('p.totalDuels >= 10')
+      .where('p.probationGames <= 0')
       .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
       .orderBy('p.rating', 'DESC')
       .getMany();
@@ -865,14 +885,21 @@ export class LadderService {
    */
   getTierName(
     rating: number,
-    duels: number,
+    _duels: number,
     cutoffs: { name: string; minRating: number }[],
   ): string | null {
-    if (duels < 10 || !cutoffs.length) return null;
+    if (!cutoffs.length) return null;
     for (const tier of cutoffs) {
       if (rating >= tier.minRating) return tier.name;
     }
     return null;
+  }
+
+  /** 段位索引越小越强，用于判断晋升方向 */
+  private getTierIndex(tierName: string | null): number {
+    if (!tierName) return this.TIER_PERCENTILES.length;
+    const idx = this.TIER_PERCENTILES.findIndex((t) => t.name === tierName);
+    return idx >= 0 ? idx : this.TIER_PERCENTILES.length;
   }
 
   private async checkTierUpgrade(
@@ -886,25 +913,27 @@ export class LadderService {
     const newTier = this.getTierName(rating.rating, rating.totalDuels, cutoffs);
     const oldTier = this.getTierName(old.rating, old.duels, cutoffs);
 
-    // 段位晋升提示
-    if (newTier && newTier !== oldTier) {
+    // 段位晋升提示（仅上分 + 真正升段时播报）
+    const gained = rating.rating > old.rating;
+    const upgraded = this.getTierIndex(newTier) < this.getTierIndex(oldTier);
+    if (gained && upgraded && newTier) {
       await client.sendChat(
         `🎉 恭喜！你已达成「${newTier}」段位！`,
         ChatColor.YELLOW,
       );
     }
 
-    // DIY 投稿资格提示（积分 ≥1150）
+    // DIY 投稿资格提示（积分 ≥150）
     if (old.rating < DIY_RATING && rating.rating >= DIY_RATING) {
       await client.sendChat(
-        '📝 你已获得 DIY 投稿资格（积分≥1150），联系群主提交卡稿吧！',
+        '📝 你已获得 DIY 投稿资格（积分≥150），联系群主提交卡稿吧！',
         ChatColor.YELLOW,
       );
     }
   }
 
   private isMatchRoom(room: Room): boolean {
-    return room.name.startsWith('M#');
+    return !!(room as any).randomType || room.name.startsWith('M#');
   }
 
   /**

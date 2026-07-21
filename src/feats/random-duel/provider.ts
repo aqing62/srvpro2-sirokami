@@ -30,6 +30,7 @@ import { ClientKeyProvider } from '../client-key-provider';
 import { HidePlayerNameProvider } from '../hide-player-name-provider';
 import { KoishiElement, PlayerName } from '../../utility';
 import { RandomDuelScore } from './score.entity';
+import { PlayerRating } from '../ladder';
 import {
   formatRemainText,
   RandomDuelPunishReason,
@@ -225,12 +226,21 @@ export class RandomDuelProvider {
     if (!this.enabled) {
       return undefined;
     }
-    const type = pass.trim().toUpperCase();
-    if (!type) {
+    const trimmed = pass.trim().toUpperCase();
+    if (!trimmed) {
       return '';
     }
-    if (this.supportedTypes.has(type)) {
-      return type;
+    if (this.supportedTypes.has(trimmed)) {
+      return trimmed;
+    }
+    // M# / S# 等：只有前缀没有房间名 → 随机匹配
+    const hashIdx = trimmed.indexOf('#');
+    if (hashIdx >= 0) {
+      const prefix = trimmed.slice(0, hashIdx);
+      const suffix = trimmed.slice(hashIdx + 1);
+      if (prefix && this.supportedTypes.has(prefix) && !suffix) {
+        return prefix;
+      }
     }
     return undefined;
   }
@@ -749,74 +759,26 @@ export class RandomDuelProvider {
   }
 
   private async sendMatchScoreTips(room: Room, client: Client) {
-    if (!this.recordMatchScoresEnabled) {
-      return;
-    }
+    const database = this.ctx.database;
+    if (!database) return;
+
     const players = room.playingPlayers.filter(
       (player) => player.pos < NetPlayerType.OBSERVER,
     );
-    if (!players.length) {
-      return;
-    }
+    if (!players.length) return;
 
-    const clientScoreText = await this.getScoreDisplay(
-      this.getClientKey(client),
-    );
+    const repo = database.getRepository(PlayerRating);
+
     for (const player of players) {
-      if (clientScoreText) {
-        await player.sendChat(
-          clientScoreText(PlayerName(client)),
-          ChatColor.GREEN,
-        );
-      }
-      if (player === client) {
-        continue;
-      }
-      const playerScoreText = await this.getScoreDisplay(
-        this.getClientKey(player),
-      );
-      if (playerScoreText) {
+      if (player === client || !player.accountName) continue;
+      const rating = await repo.findOne({ where: { accountName: player.accountName } });
+      if (rating) {
         await client.sendChat(
-          playerScoreText(PlayerName(player)),
+          `${player.displayName || player.accountName} — 天梯 ${rating.rating}分 (${rating.wins}胜${rating.losses}负${rating.draws}平)`,
           ChatColor.GREEN,
         );
       }
     }
-  }
-
-  private async getScoreDisplay(name: string) {
-    const repo = this.ctx.database?.getRepository(RandomDuelScore);
-    if (!repo || !name) {
-      return undefined;
-    }
-    const score = await repo.findOneBy({ name });
-    return (displayName: string | KoishiElement) => {
-      if (!score) {
-        return [displayName, ' #{random_score_blank}'];
-      }
-
-      const total = score.winCount + score.loseCount;
-      if (score.winCount < 2 && total < 3) {
-        return [displayName, ' #{random_score_not_enough}'];
-      }
-
-      const safeTotal = total > 0 ? total : 1;
-      const winRate = Math.ceil((score.winCount / safeTotal) * 100);
-      const fleeRate = Math.ceil((score.fleeCount / safeTotal) * 100);
-
-      if (score.winCombo >= 2) {
-        return [
-          '#{random_score_part1}',
-          displayName,
-          ` #{random_score_part2} ${winRate}#{random_score_part3} ${fleeRate}#{random_score_part4_combo}${score.winCombo}#{random_score_part5_combo}`,
-        ];
-      }
-      return [
-        '#{random_score_part1}',
-        displayName,
-        ` #{random_score_part2} ${winRate}#{random_score_part3} ${fleeRate}#{random_score_part4}`,
-      ];
-    };
   }
 
   private get recordMatchScoresEnabled() {
