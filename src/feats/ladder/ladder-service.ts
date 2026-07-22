@@ -105,6 +105,13 @@ export class LadderService {
         const badges = [user.ladderTitle, user.title].filter(Boolean).join(' · ');
         lines.push(`🏆 ${badges}`);
       }
+
+      // 牢称号：天梯最后一名
+      const lastPlace = await this.getLastPlacePlayer();
+      if (lastPlace && lastPlace.accountName === rating.accountName) {
+        lines.push('[牢] 天梯守门员！');
+      }
+
       if (rating.probationGames > 0) {
         lines.push(
           `⚠️ 考察期剩余 ${rating.probationGames} 场（通过后进入排行榜）`,
@@ -159,13 +166,21 @@ export class LadderService {
 
       const cutoffs = await this.getTierCutoffs();
 
+      // 找最后一个合格玩家，标记"牢"
+      const allEligible = all
+        .filter((p) => p.probationGames <= 0 && p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS);
+      const lastPlaceName = allEligible.length > 0
+        ? allEligible[allEligible.length - 1].accountName
+        : null;
+
       const lines = ['=== 天梯排行榜 TOP10 ==='];
       top.forEach((p, i) => {
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
         const name = p.displayName || p.accountName;
         const tier = this.getTierName(p.rating, p.totalDuels, cutoffs);
         const tierTag = tier ? `[${tier.replace('S1 ', '')}] ` : '';
-        lines.push(`${medal} ${tierTag}${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)`);
+        const lastTag = p.accountName === lastPlaceName ? ' [牢]' : '';
+        lines.push(`${medal} ${tierTag}${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)${lastTag}`);
       });
 
       // 段位门槛
@@ -231,6 +246,12 @@ export class LadderService {
 
       const cutoffs = await this.getTierCutoffs();
 
+      // 找最后一个合格玩家
+      const eligibleForLast = players.filter(Boolean);
+      const lastPlaceAccount = eligibleForLast.length > 0
+        ? eligibleForLast[eligibleForLast.length - 1].accountName
+        : null;
+
       koaCtx.body = {
         players: players.map((p) => {
           const tier = this.getTierName(p.rating, p.totalDuels, cutoffs);
@@ -247,6 +268,7 @@ export class LadderService {
             winRate: p.totalDuels > 0
               ? ((p.wins / p.totalDuels) * 100).toFixed(1) + '%'
               : '0%',
+            isLast: p.accountName === lastPlaceAccount,
           };
         }),
         total: players.length,
@@ -893,6 +915,28 @@ export class LadderService {
       if (rating >= tier.minRating) return tier.name;
     }
     return null;
+  }
+
+  /**
+   * 获取天梯最后一名（牢称号），从活跃合格玩家中取最低分。
+   */
+  private async getLastPlacePlayer(): Promise<PlayerRating | null> {
+    const database = this.ctx.database;
+    if (!database) return null;
+
+    const repo = database.getRepository(PlayerRating);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    return (
+      (await repo
+        .createQueryBuilder('p')
+        .where('p.probationGames <= 0')
+        .andWhere('p.uniqueOpponentCount >= :minOpp', { minOpp: MIN_UNIQUE_OPPONENTS })
+        .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
+        .orderBy('p.rating', 'ASC')
+        .take(1)
+        .getOne()) || null
+    );
   }
 
   /** 段位索引越小越强，用于判断晋升方向 */
