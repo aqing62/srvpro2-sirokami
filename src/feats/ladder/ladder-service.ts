@@ -166,21 +166,13 @@ export class LadderService {
 
       const cutoffs = await this.getTierCutoffs();
 
-      // 找最后一个合格玩家，标记"牢"
-      const allEligible = all
-        .filter((p) => p.probationGames <= 0 && p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS);
-      const lastPlaceName = allEligible.length > 0
-        ? allEligible[allEligible.length - 1].accountName
-        : null;
-
       const lines = ['=== 天梯排行榜 TOP10 ==='];
       top.forEach((p, i) => {
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
         const name = p.displayName || p.accountName;
         const tier = this.getTierName(p.rating, p.totalDuels, cutoffs);
         const tierTag = tier ? `[${tier.replace('S1 ', '')}] ` : '';
-        const lastTag = p.accountName === lastPlaceName ? ' [牢]' : '';
-        lines.push(`${medal} ${tierTag}${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)${lastTag}`);
+        lines.push(`${medal} ${tierTag}${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)`);
       });
 
       // 段位门槛
@@ -210,6 +202,13 @@ export class LadderService {
             );
           }
         }
+      }
+
+      // 牢称号：天梯末位玩家
+      const lastPlacePlayer = await this.getLastPlacePlayer();
+      if (lastPlacePlayer) {
+        const lpName = lastPlacePlayer.displayName || lastPlacePlayer.accountName;
+        lines.push(`---\n[牢] ${lpName} - ${lastPlacePlayer.rating}分 (${lastPlacePlayer.wins}胜${lastPlacePlayer.losses}负)`);
       }
 
       await client.sendChat(lines.join('\n'), ChatColor.GREEN);
@@ -246,11 +245,9 @@ export class LadderService {
 
       const cutoffs = await this.getTierCutoffs();
 
-      // 找最后一个合格玩家
-      const eligibleForLast = players.filter(Boolean);
-      const lastPlaceAccount = eligibleForLast.length > 0
-        ? eligibleForLast[eligibleForLast.length - 1].accountName
-        : null;
+      // 真正的末位玩家（含榜外），用于 isLast 标记
+      const trueLast = await this.getLastPlacePlayer();
+      const lastPlaceAccount = trueLast?.accountName || null;
 
       koaCtx.body = {
         players: players.map((p) => {
