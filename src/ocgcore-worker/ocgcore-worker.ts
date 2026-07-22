@@ -114,8 +114,17 @@ export class OcgcoreWorker {
       await this.handleMessage(message, type);
     });
 
-    // Load script reader: YPK (DIY) 优先于 filesystem (base)
-    const fsReader = DirScriptReader(...this.options.ygoproPaths);
+    // Load script reader: YPK (DIY) > cards-pre (先行) > cards/official (官方)
+    const prePaths = this.options.ygoproPaths.filter(
+      (p) => p.includes('cards-pre'),
+    );
+    const otherPaths = this.options.ygoproPaths.filter(
+      (p) => !p.includes('cards-pre'),
+    );
+    const preReader = DirScriptReader(...prePaths);
+    const otherReader = DirScriptReader(...otherPaths);
+    const fsReader = (path: string) => preReader(path) ?? otherReader(path);
+
     const ypkInputs: Uint8Array[] = [];
     for await (const ypkBytes of searchYGOProYpk(...this.options.ygoproPaths)) {
       ypkInputs.push(ypkBytes);
