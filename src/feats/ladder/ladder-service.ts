@@ -924,16 +924,19 @@ export class LadderService {
     const repo = database.getRepository(PlayerRating);
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    return (
-      (await repo
-        .createQueryBuilder('p')
-        .where('p.probationGames <= 0')
-        .andWhere('p.uniqueOpponentCount >= :minOpp', { minOpp: MIN_UNIQUE_OPPONENTS })
-        .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
-        .orderBy('p.rating', 'ASC')
-        .take(1)
-        .getOne()) || null
+    // uniqueOpponentCount is a getter (not a DB column), filter in-memory
+    const candidates = await repo
+      .createQueryBuilder('p')
+      .where('p.probationGames <= 0')
+      .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
+      .orderBy('p.rating', 'ASC')
+      .take(50)
+      .getMany();
+
+    const eligible = candidates.filter(
+      (p) => p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS,
     );
+    return eligible.length > 0 ? eligible[0] : null;
   }
 
   /** 段位索引越小越强，用于判断晋升方向 */
