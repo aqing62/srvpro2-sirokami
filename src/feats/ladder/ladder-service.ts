@@ -579,15 +579,53 @@ export class LadderService {
   }
 
   /**
-   * 新赛季重置：清空积分 + 废弃全部比赛记录
+   * 新赛季重置：结算称号 → 清空积分 → 废弃全部比赛记录
    */
-  private async resetSeason(): Promise<{ ratingsCleared: number; recordsArchived: number }> {
+  private async resetSeason(): Promise<{
+    titlesAssigned: number;
+    ratingsCleared: number;
+    recordsArchived: number;
+  }> {
     const database = this.ctx.database;
     if (!database) throw new Error('数据库未启用');
 
     const duelRepo = database.getRepository(DuelRecordEntity);
     const ratingRepo = database.getRepository(PlayerRating);
+    const userRepo = database.getRepository(User);
     const logger = this.ctx.createLogger('ResetSeason');
+
+    // 结算赛季称号：在清空积分前，为所有活跃合格玩家写入 ladderTitle
+    const cutoffs = await this.getTierCutoffs();
+    const lastPlace = await this.getLastPlacePlayer();
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const activePlayers = await ratingRepo
+      .createQueryBuilder('p')
+      .where('p.probationGames <= 0')
+      .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
+      .orderBy('p.rating', 'DESC')
+      .getMany();
+
+    let titlesAssigned = 0;
+    if (activePlayers.length > 0 && cutoffs.length > 0) {
+      const lastPlaceName = lastPlace?.accountName;
+
+      for (const player of activePlayers) {
+        // uniqueOpponentCount is a getter, filter in-memory
+        if (player.uniqueOpponentCount < MIN_UNIQUE_OPPONENTS) continue;
+
+        const tier = this.getTierName(player.rating, player.totalDuels, cutoffs);
+        if (!tier) continue;
+
+        // 末位玩家标「牢」
+        const ladderTitle =
+          lastPlaceName && player.accountName === lastPlaceName ? `${tier} 牢` : tier;
+
+        await userRepo.update({ accountName: player.accountName }, { ladderTitle } as any);
+        titlesAssigned++;
+      }
+    }
+    logger.info(`Assigned ladder titles to ${titlesAssigned} players`);
 
     // 清空积分
     const ratings = await ratingRepo.find();
@@ -606,7 +644,7 @@ export class LadderService {
     const recordsArchived = result.affected || 0;
     logger.info(`Archived ${recordsArchived} duel records`);
 
-    return { ratingsCleared, recordsArchived };
+    return { titlesAssigned, ratingsCleared, recordsArchived };
   }
 
   /**
