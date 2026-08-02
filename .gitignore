@@ -9,3 +9,8 @@ Thumbs.db
 _*.txt
 srvpro2/
 # junk files
+.vs/
+config*.yaml
+deploy.txt
+server-error-logs-*.txt
+服务器公告.txt

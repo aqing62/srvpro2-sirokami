@@ -1,1 +1,0 @@
-ssh root@154.64.254.189 'cat > /root/servers/ygopro/srvpro-siro/config.yaml && pm2 delete 45 && cd /root/servers/ygopro/srvpro-siro && pm2 start dist/index.js --name srvpro2_siro:50010 && pm2 save' < /e/ygopro-server-src/config.yaml
