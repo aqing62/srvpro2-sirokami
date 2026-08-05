@@ -20,6 +20,7 @@ import { LegacyApiModule } from './legacy-api/legacy-api-module';
 import { TailModule } from './tail-module';
 import { PreJoinModule } from './pre-join';
 import { PluginLoader } from './plugin-loader';
+import { CommunityService } from './feats/community';
 
 const core = createAppContext()
   .provide(ConfigService, {
@@ -48,6 +49,7 @@ const core = createAppContext()
     useFactory: TypeormFactory,
     merge: ['database'],
   })
+  .provide(CommunityService) // forum: deck sharing, card feedback, casual chat, Q&A
   .define();
 
 export type Context = typeof core;

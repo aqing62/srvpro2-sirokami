@@ -9,6 +9,12 @@ import { LegacyApiRecordEntity } from '../legacy-api/legacy-api-record.entity';
 import { LegacyBanEntity } from '../legacy-api/legacy-ban.entity';
 import { LegacyDeckEntity } from '../legacy-api/legacy-deck.entity';
 import { User } from '../feats/login';
+import {
+  CommunityPostEntity,
+  CommunityReplyEntity,
+  CommunityLikeEntity,
+  CommunityUserProfileEntity,
+} from '../feats/community';
 import { collectPluginTypeormEntities } from './plugin-typeorm-entity-loader';
 import * as fs from 'node:fs';
 
@@ -48,6 +54,10 @@ export const TypeormFactory = async (ctx: AppContext) => {
     LegacyBanEntity,
     LegacyDeckEntity,
     User,
+    CommunityPostEntity,
+    CommunityReplyEntity,
+    CommunityLikeEntity,
+    CommunityUserProfileEntity,
   ];
   const pluginEntities = collectPluginTypeormEntities(logger);
   const entities = [
