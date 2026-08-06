@@ -186,6 +186,7 @@ export class CommunityService {
 
       const section = String(koaCtx.query.section || '').trim();
       const sort = String(koaCtx.query.sort || 'latest');
+      const search = String(koaCtx.query.search || '').trim();
       const page = getPage(koaCtx);
       const pageSize = getPageSize(koaCtx);
 
@@ -196,11 +197,23 @@ export class CommunityService {
         qb = qb.andWhere('post.section = :section', { section });
       }
 
+      if (search) {
+        qb = qb.andWhere(
+          '(post.title ILIKE :q OR post.content ILIKE :q OR post.authorName ILIKE :q)',
+          { q: '%' + search + '%' },
+        );
+      }
+
       // 置顶帖优先
       qb = qb.orderBy('post.isPinned', 'DESC');
 
       if (sort === 'hot') {
         qb = qb.addOrderBy('post.likeCount', 'DESC').addOrderBy('post.createTime', 'DESC');
+      } else if (sort === 'recent') {
+        qb = qb.addOrderBy(
+          'COALESCE(post.lastReplyAt, post.createTime)',
+          'DESC',
+        );
       } else {
         qb = qb.addOrderBy('post.createTime', 'DESC');
       }
@@ -222,7 +235,10 @@ export class CommunityService {
           accountName: p.accountName,
           likeCount: p.likeCount,
           replyCount: p.replyCount,
+          viewCount: p.viewCount || 0,
+          tags: p.tags || '',
           isPinned: p.isPinned,
+          lastReplyAt: p.lastReplyAt,
           createTime: p.createTime,
         })),
       };
@@ -244,6 +260,10 @@ export class CommunityService {
         return;
       }
 
+      // 浏览量 +1
+      post.viewCount = (post.viewCount || 0) + 1;
+      await repo.save(post);
+
       koaCtx.body = {
         id: Number(post.id),
         section: post.section,
@@ -254,8 +274,12 @@ export class CommunityService {
         accountName: post.accountName,
         likeCount: post.likeCount,
         replyCount: post.replyCount,
+        viewCount: post.viewCount,
+        tags: post.tags || '',
         isPinned: post.isPinned,
+        lastReplyAt: post.lastReplyAt,
         createTime: post.createTime,
+        updateTime: post.updateTime,
       };
     });
 
@@ -281,6 +305,8 @@ export class CommunityService {
       const content = String(body.content || '').trim().slice(0, MAX_CONTENT);
       if (!content) { koaCtx.status = 400; koaCtx.body = { error: '内容不能为空' }; return; }
 
+      const tags = String(body.tags || '').trim().slice(0, 100);
+
       // 获取显示名
       const userRepo = database.getRepository(User);
       const user = await userRepo.findOneBy({ accountName } as any);
@@ -299,6 +325,7 @@ export class CommunityService {
       post.title = title;
       post.content = content;
       post.contentJson = contentJson;
+      post.tags = tags;
       post.accountName = accountName;
       post.authorName = authorName;
       await database.getRepository(CommunityPostEntity).save(post);
@@ -328,6 +355,68 @@ export class CommunityService {
 
       post.deleteTime = new Date();
       await repo.save(post);
+      koaCtx.body = { ok: true };
+    });
+
+    // ═══════════════════════════════════════════
+    // PUT /api/forum/posts/:id — 编辑帖子
+    // ═══════════════════════════════════════════
+    this.ctx.router.put('/api/forum/posts/:id', async (koaCtx) => {
+      const body = JSON.parse(await readBody(koaCtx));
+      const accountName = await requireAuthFromBody(koaCtx, body);
+      if (!accountName) { auth403(koaCtx); return; }
+
+      const database = db()!;
+      const id = parseInt(koaCtx.params.id, 10);
+      if (!id) { koaCtx.status = 400; koaCtx.body = { error: '无效的帖子ID' }; return; }
+
+      const repo = database.getRepository(CommunityPostEntity);
+      const post = await repo.findOneBy({ id } as any);
+      if (!post || post.deleteTime) { koaCtx.status = 404; koaCtx.body = { error: '帖子不存在' }; return; }
+      if (post.accountName !== accountName) {
+        koaCtx.status = 403; koaCtx.body = { error: '只能编辑自己的帖子' }; return;
+      }
+
+      const title = String(body.title || '').trim().slice(0, MAX_TITLE);
+      const content = String(body.content || '').trim().slice(0, MAX_CONTENT);
+      if (!title) { koaCtx.status = 400; koaCtx.body = { error: '标题不能为空' }; return; }
+      if (!content) { koaCtx.status = 400; koaCtx.body = { error: '内容不能为空' }; return; }
+
+      post.title = title;
+      post.content = content;
+      post.contentJson = Array.isArray(body.contentJson) ? body.contentJson.slice(0, 20) : parseContentJson(content);
+      post.tags = String(body.tags || '').trim().slice(0, 100);
+      await repo.save(post);
+
+      koaCtx.body = { ok: true };
+    });
+
+    // ═══════════════════════════════════════════
+    // PUT /api/forum/replies/:id — 编辑回复
+    // ═══════════════════════════════════════════
+    this.ctx.router.put('/api/forum/replies/:id', async (koaCtx) => {
+      const body = JSON.parse(await readBody(koaCtx));
+      const accountName = await requireAuthFromBody(koaCtx, body);
+      if (!accountName) { auth403(koaCtx); return; }
+
+      const database = db()!;
+      const id = parseInt(koaCtx.params.id, 10);
+      if (!id) { koaCtx.status = 400; koaCtx.body = { error: '无效的回复ID' }; return; }
+
+      const repo = database.getRepository(CommunityReplyEntity);
+      const reply = await repo.findOneBy({ id } as any);
+      if (!reply) { koaCtx.status = 404; koaCtx.body = { error: '回复不存在' }; return; }
+      if (reply.accountName !== accountName) {
+        koaCtx.status = 403; koaCtx.body = { error: '只能编辑自己的回复' }; return;
+      }
+
+      const content = String(body.content || '').trim().slice(0, MAX_REPLY);
+      if (!content) { koaCtx.status = 400; koaCtx.body = { error: '内容不能为空' }; return; }
+
+      reply.content = content;
+      reply.contentJson = Array.isArray(body.contentJson) ? body.contentJson.slice(0, 5) : [];
+      await repo.save(reply);
+
       koaCtx.body = { ok: true };
     });
 
@@ -363,6 +452,37 @@ export class CommunityService {
         await postRepo.save(post);
         koaCtx.body = { ok: true, liked: true, likeCount: post.likeCount };
       }
+    });
+
+    // ═══════════════════════════════════════════
+    // POST /api/forum/posts/:id/pin — 置顶/取消置顶（仅管理员）
+    // ═══════════════════════════════════════════
+    this.ctx.router.post('/api/forum/posts/:id/pin', async (koaCtx) => {
+      const accountName = await requireAuth(koaCtx);
+      if (!accountName) { auth403(koaCtx); return; }
+
+      const database = db()!;
+      // 检查是否是管理员（sudo权限）
+      const userRepo = database.getRepository(User);
+      const user = await userRepo.findOneBy({ accountName } as any);
+      if (!user || user.enabled === false || !user.permissions || !user.permissions.split(',').some((p: string) => p.trim() === 'sudo')) {
+        koaCtx.status = 403;
+        koaCtx.body = { error: '权限不足，仅管理员可操作' };
+        return;
+      }
+
+      const body = JSON.parse(await readBody(koaCtx));
+      const postId = parseInt(koaCtx.params.id, 10);
+      if (!postId || postId <= 0) { koaCtx.body = { error: '无效的帖子ID' }; return; }
+
+      const postRepo = database.getRepository(CommunityPostEntity);
+      const post = await postRepo.findOneBy({ id: postId } as any);
+      if (!post || post.deleteTime) { koaCtx.status = 404; koaCtx.body = { error: '帖子不存在' }; return; }
+
+      post.isPinned = body.pinned !== false; // 默认 true
+      await postRepo.save(post);
+
+      koaCtx.body = { ok: true, isPinned: post.isPinned };
     });
 
     // ═══════════════════════════════════════════
@@ -435,6 +555,7 @@ export class CommunityService {
       await database.getRepository(CommunityReplyEntity).save(reply);
 
       post.replyCount += 1;
+      post.lastReplyAt = new Date();
       await postRepo.save(post);
 
       koaCtx.body = { ok: true, id: Number(reply.id), replyCount: post.replyCount };
