@@ -162,6 +162,7 @@ export class CommunityService {
       const database = db()!;
       const userRepo = database.getRepository(User);
       const user = await userRepo.findOneBy({ accountName } as any);
+      // 统一称号池：赛季称号 + 管理员/比赛称号（title 字段）合并去重
       let titles: string[] = [];
       try {
         const parsed = JSON.parse(user?.titles || '[]');
@@ -169,8 +170,11 @@ export class CommunityService {
       } catch {
         /* 忽略格式错误的旧数据 */
       }
+      const adminTitle = (user?.title || '').trim();
+      if (adminTitle && !titles.includes(adminTitle)) titles.push(adminTitle);
       koaCtx.body = {
         titles,
+        adminTitle,
         selectedTitle: user?.selectedTitle || '',
         selectedTitle2: user?.selectedTitle2 || '',
       };
@@ -192,6 +196,7 @@ export class CommunityService {
       const database = db()!;
       const userRepo = database.getRepository(User);
       const user = await userRepo.findOneBy({ accountName } as any);
+      // 统一称号池（与 GET 一致）：赛季称号 + 管理员/比赛称号
       let titles: string[] = [];
       try {
         const parsed = JSON.parse(user?.titles || '[]');
@@ -199,6 +204,8 @@ export class CommunityService {
       } catch {
         /* 忽略格式错误的旧数据 */
       }
+      const adminTitle = (user?.title || '').trim();
+      if (adminTitle && !titles.includes(adminTitle)) titles.push(adminTitle);
       const valid = (t: string) => !t || titles.includes(t);
       if (!valid(selectedTitle) || !valid(selectedTitle2)) {
         koaCtx.body = { error: '所选称号不在你的称号列表里' };

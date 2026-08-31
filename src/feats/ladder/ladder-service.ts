@@ -101,10 +101,10 @@ export class LadderService {
       const lines = [
         `=== ${rating.displayName || rating.accountName} ===`,
       ];
-      // 称号展示：玩家选定的主+副（未选则用最新赛季称号），管理员通用称号追加显示
+      // 称号展示：玩家选定的主+副（未选则用最新赛季称号）；管理员/比赛称号也并入可选项由玩家自选
       const mainTitle = user?.selectedTitle || user?.ladderTitle || '';
       const subTitle = user?.selectedTitle2 || '';
-      const badges = [mainTitle, subTitle, user?.title].filter(Boolean).join(' · ');
+      const badges = [mainTitle, subTitle].filter(Boolean).join(' · ');
       if (badges) {
         lines.push(`🏆 ${badges}`);
       }
