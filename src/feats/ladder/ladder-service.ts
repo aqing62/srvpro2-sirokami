@@ -109,7 +109,7 @@ export class LadderService {
       // 牢称号：天梯最后一名
       const lastPlace = await this.getLastPlacePlayer();
       if (lastPlace && lastPlace.accountName === rating.accountName) {
-        lines.push('[牢] 天梯守门员！');
+        lines.push('[牢] 天梯前10胜率最低！');
       }
 
       if (rating.probationGames > 0) {
@@ -171,7 +171,7 @@ export class LadderService {
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
         const name = p.displayName || p.accountName;
         const tier = this.getTierName(p.rating, p.totalDuels, cutoffs);
-        const tierTag = tier ? `[${tier.replace('S1 ', '')}] ` : '';
+        const tierTag = tier ? `[${tier.replace(/^S\d+\s+/, '')}] ` : '';
         lines.push(`${medal} ${tierTag}${name} - ${p.rating}分 (${p.wins}胜${p.losses}负)`);
       });
 
@@ -208,7 +208,7 @@ export class LadderService {
       const lastPlacePlayer = await this.getLastPlacePlayer();
       if (lastPlacePlayer) {
         const lpName = lastPlacePlayer.displayName || lastPlacePlayer.accountName;
-        lines.push(`---\n[牢] ${lpName} - ${lastPlacePlayer.rating}分 (${lastPlacePlayer.wins}胜${lastPlacePlayer.losses}负)`);
+        lines.push(`---\n[牢] ${lpName} - ${lastPlacePlayer.rating}分 (${lastPlacePlayer.wins}胜${lastPlacePlayer.losses}负 胜率${lastPlacePlayer.winRate})`);
       }
 
       await client.sendChat(lines.join('\n'), ChatColor.GREEN);
@@ -594,30 +594,28 @@ export class LadderService {
     const userRepo = database.getRepository(User);
     const logger = this.ctx.createLogger('ResetSeason');
 
-    // 结算赛季称号：在清空积分前，为所有活跃合格玩家写入 ladderTitle
-    const cutoffs = await this.getTierCutoffs();
-    const lastPlace = await this.getLastPlacePlayer();
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    // 结算赛季称号：在清空积分前，为所有合格玩家写入 ladderTitle（不要求近期活跃）
+    const cutoffs = await this.getTierCutoffs(false);
+    const lastPlace = await this.getLastPlacePlayer(false);
 
-    const activePlayers = await ratingRepo
+    const settlePlayers = await ratingRepo
       .createQueryBuilder('p')
       .where('p.probationGames <= 0')
-      .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
       .orderBy('p.rating', 'DESC')
       .getMany();
 
     let titlesAssigned = 0;
-    if (activePlayers.length > 0 && cutoffs.length > 0) {
+    if (settlePlayers.length > 0 && cutoffs.length > 0) {
       const lastPlaceName = lastPlace?.accountName;
 
-      for (const player of activePlayers) {
+      for (const player of settlePlayers) {
         // uniqueOpponentCount is a getter, filter in-memory
         if (player.uniqueOpponentCount < MIN_UNIQUE_OPPONENTS) continue;
 
         const tier = this.getTierName(player.rating, player.totalDuels, cutoffs);
         if (!tier) continue;
 
-        // 末位玩家标「牢」
+        // 前10胜率最低玩家标「牢」
         const ladderTitle =
           lastPlaceName && player.accountName === lastPlaceName ? `${tier} 牢` : tier;
 
@@ -904,30 +902,28 @@ export class LadderService {
 
   // 段位百分比（从高到低），最后一项 pct=1.00 兜底
   private readonly TIER_PERCENTILES = [
-    { name: 'S1 大师', pct: 0.08 },
-    { name: 'S1 钻石', pct: 0.18 },
-    { name: 'S1 黄金', pct: 0.35 },
-    { name: 'S1 白银', pct: 0.60 },
-    { name: 'S1 参战者', pct: 1.00 },
+    { name: 'S2 巅峰', pct: 0 },   // 第1名专属（0% → 取最高分）
+    { name: 'S2 大师', pct: 0.08 },
+    { name: 'S2 钻石', pct: 0.18 },
+    { name: 'S2 黄金', pct: 0.35 },
+    { name: 'S2 白银', pct: 0.60 },
+    { name: 'S2 参战者', pct: 1.00 },
   ];
 
   /**
    * 获取当前各段位的分数线。
    * 活跃玩家 = 已通过定级赛 且 近7天有对局。
    */
-  async getTierCutoffs(): Promise<{ name: string; minRating: number }[]> {
+  async getTierCutoffs(activeOnly = true): Promise<{ name: string; minRating: number }[]> {
     const database = this.ctx.database;
     if (!database) return [];
 
     const repo = database.getRepository(PlayerRating);
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    const active = await repo
-      .createQueryBuilder('p')
-      .where('p.probationGames <= 0')
-      .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
-      .orderBy('p.rating', 'DESC')
-      .getMany();
+    const qb = repo.createQueryBuilder('p').where('p.probationGames <= 0');
+    if (activeOnly) qb.andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo });
+    const active = await qb.orderBy('p.rating', 'DESC').getMany();
 
     if (!active.length) return [];
 
@@ -953,9 +949,9 @@ export class LadderService {
   }
 
   /**
-   * 获取天梯最后一名（牢称号），从活跃合格玩家中取最低分。
+   * 获取「牢」玩家：前10名（合格玩家）中胜率最低的1个。
    */
-  private async getLastPlacePlayer(): Promise<PlayerRating | null> {
+  private async getLastPlacePlayer(activeOnly = true): Promise<PlayerRating | null> {
     const database = this.ctx.database;
     if (!database) return null;
 
@@ -963,18 +959,25 @@ export class LadderService {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     // uniqueOpponentCount is a getter (not a DB column), filter in-memory
-    const candidates = await repo
-      .createQueryBuilder('p')
-      .where('p.probationGames <= 0')
-      .andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo })
-      .orderBy('p.rating', 'ASC')
+    const qb = repo.createQueryBuilder('p').where('p.probationGames <= 0');
+    if (activeOnly) qb.andWhere('p.lastDuelAt >= :since', { since: sevenDaysAgo });
+    const top = await qb
+      .orderBy('p.rating', 'DESC')
       .take(50)
       .getMany();
 
-    const eligible = candidates.filter(
-      (p) => p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS,
-    );
-    return eligible.length > 0 ? eligible[0] : null;
+    const eligible = top
+      .filter((p) => p.uniqueOpponentCount >= MIN_UNIQUE_OPPONENTS)
+      .slice(0, 10);
+    if (!eligible.length) return null;
+
+    // 前10中胜率最低者（胜率相同取积分更低者）
+    eligible.sort((a, b) => {
+      const wrA = a.totalDuels > 0 ? a.wins / a.totalDuels : 1;
+      const wrB = b.totalDuels > 0 ? b.wins / b.totalDuels : 1;
+      return wrA - wrB || a.rating - b.rating;
+    });
+    return eligible[0];
   }
 
   /** 段位索引越小越强，用于判断晋升方向 */

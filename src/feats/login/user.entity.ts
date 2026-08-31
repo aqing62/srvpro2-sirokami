@@ -26,7 +26,7 @@ export class User extends BaseTimeEntity {
   title = ''; // 通用称号（比赛等，管理员手动赋值）
 
   @Column({ type: 'varchar', length: 64, default: '' })
-  ladderTitle = ''; // 天梯赛季称号，如「S1 钻石」，赛季末结算
+  ladderTitle = ''; // 天梯赛季称号，如「S2 钻石」，赛季末结算
 
   @Column({ type: 'varchar', length: 64, default: '' })
   lastIp = ''; // 最近登录IP，用于自动登录恢复
