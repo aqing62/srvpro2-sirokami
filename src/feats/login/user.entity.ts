@@ -28,6 +28,15 @@ export class User extends BaseTimeEntity {
   @Column({ type: 'varchar', length: 64, default: '' })
   ladderTitle = ''; // 天梯赛季称号，如「S2 钻石」，赛季末结算
 
+  @Column({ type: 'text', default: '[]' })
+  titles = '[]'; // 历年赛季称号 JSON 数组（官网称号选择器的数据源）
+
+  @Column({ type: 'varchar', length: 64, default: '' })
+  selectedTitle = ''; // 玩家选定的展示主称号（官网选择；空 = 显示最新赛季称号）
+
+  @Column({ type: 'varchar', length: 64, default: '' })
+  selectedTitle2 = ''; // 玩家选定的展示副称号（官网选择，可空）
+
   @Column({ type: 'varchar', length: 64, default: '' })
   lastIp = ''; // 最近登录IP，用于自动登录恢复
 }

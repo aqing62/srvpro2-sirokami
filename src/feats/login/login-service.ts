@@ -58,7 +58,10 @@ export class LoginService {
       client.accountName = username;
       client.displayName = user.displayName || username;
       client.title = user.title || '';
-      client.ladderTitle = user.ladderTitle || '';
+      // 称号展示：优先玩家在官网选定的主+副称号，未选则用最新赛季称号
+      const mainTitle = user.selectedTitle || user.ladderTitle || '';
+      const subTitle = user.selectedTitle2 || '';
+      client.ladderTitle = subTitle ? `${mainTitle} · ${subTitle}` : mainTitle;
       return next();
     });
 

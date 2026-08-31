@@ -154,6 +154,61 @@ export class CommunityService {
     });
 
     // ═══════════════════════════════════════════
+    // GET /api/forum/profile/titles — 我的称号列表与当前选择
+    // ═══════════════════════════════════════════
+    this.ctx.router.get('/api/forum/profile/titles', async (koaCtx) => {
+      const accountName = await requireAuth(koaCtx);
+      if (!accountName) { auth403(koaCtx); return; }
+      const database = db()!;
+      const userRepo = database.getRepository(User);
+      const user = await userRepo.findOneBy({ accountName } as any);
+      let titles: string[] = [];
+      try {
+        const parsed = JSON.parse(user?.titles || '[]');
+        if (Array.isArray(parsed)) titles = parsed;
+      } catch {
+        /* 忽略格式错误的旧数据 */
+      }
+      koaCtx.body = {
+        titles,
+        selectedTitle: user?.selectedTitle || '',
+        selectedTitle2: user?.selectedTitle2 || '',
+      };
+    });
+
+    // ═══════════════════════════════════════════
+    // POST /api/forum/profile/title — 保存称号选择（主+副）
+    // ═══════════════════════════════════════════
+    this.ctx.router.post('/api/forum/profile/title', async (koaCtx) => {
+      const accountName = await requireAuth(koaCtx);
+      if (!accountName) { auth403(koaCtx); return; }
+      const body = JSON.parse(await readBody(koaCtx));
+      const selectedTitle = String(body.selectedTitle || '').trim().slice(0, 64);
+      const selectedTitle2 = String(body.selectedTitle2 || '').trim().slice(0, 64);
+      if (selectedTitle && selectedTitle === selectedTitle2) {
+        koaCtx.body = { error: '主称号与副称号不能相同' };
+        return;
+      }
+      const database = db()!;
+      const userRepo = database.getRepository(User);
+      const user = await userRepo.findOneBy({ accountName } as any);
+      let titles: string[] = [];
+      try {
+        const parsed = JSON.parse(user?.titles || '[]');
+        if (Array.isArray(parsed)) titles = parsed;
+      } catch {
+        /* 忽略格式错误的旧数据 */
+      }
+      const valid = (t: string) => !t || titles.includes(t);
+      if (!valid(selectedTitle) || !valid(selectedTitle2)) {
+        koaCtx.body = { error: '所选称号不在你的称号列表里' };
+        return;
+      }
+      await userRepo.update({ accountName }, { selectedTitle, selectedTitle2 } as any);
+      koaCtx.body = { ok: true, selectedTitle, selectedTitle2 };
+    });
+
+    // ═══════════════════════════════════════════
     // POST /api/forum/profile/avatar — 头像上传后递增版本
     // ═══════════════════════════════════════════
     this.ctx.router.post('/api/forum/profile/avatar', async (koaCtx) => {

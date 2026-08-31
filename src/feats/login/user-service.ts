@@ -10,6 +10,9 @@ export interface UserEntry {
   displayName?: string;
   title?: string;
   ladderTitle?: string;
+  titles?: string;
+  selectedTitle?: string;
+  selectedTitle2?: string;
 }
 
 export class UserService {
@@ -95,6 +98,9 @@ export class UserService {
             displayName: user.displayName,
             title: user.title,
             ladderTitle: user.ladderTitle,
+            titles: user.titles,
+            selectedTitle: user.selectedTitle,
+            selectedTitle2: user.selectedTitle2,
           };
         }
         return undefined;

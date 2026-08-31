@@ -101,8 +101,11 @@ export class LadderService {
       const lines = [
         `=== ${rating.displayName || rating.accountName} ===`,
       ];
-      if (user?.ladderTitle || user?.title) {
-        const badges = [user.ladderTitle, user.title].filter(Boolean).join(' · ');
+      // 称号展示：玩家选定的主+副（未选则用最新赛季称号），管理员通用称号追加显示
+      const mainTitle = user?.selectedTitle || user?.ladderTitle || '';
+      const subTitle = user?.selectedTitle2 || '';
+      const badges = [mainTitle, subTitle, user?.title].filter(Boolean).join(' · ');
+      if (badges) {
         lines.push(`🏆 ${badges}`);
       }
 
@@ -619,7 +622,25 @@ export class LadderService {
         const ladderTitle =
           lastPlaceName && player.accountName === lastPlaceName ? `${tier} 牢` : tier;
 
-        await userRepo.update({ accountName: player.accountName }, { ladderTitle } as any);
+        // 称号累积：追加到 titles（去重），并默认选为主称号
+        const user = await userRepo.findOneBy({ accountName: player.accountName } as any);
+        const titles: string[] = [];
+        try {
+          const parsed = JSON.parse(user?.titles || '[]');
+          if (Array.isArray(parsed)) titles.push(...parsed);
+        } catch {
+          /* 忽略格式错误的旧数据 */
+        }
+        if (!titles.includes(ladderTitle)) titles.push(ladderTitle);
+
+        await userRepo.update(
+          { accountName: player.accountName },
+          {
+            ladderTitle,
+            titles: JSON.stringify(titles),
+            selectedTitle: ladderTitle,
+          } as any,
+        );
         titlesAssigned++;
       }
     }
