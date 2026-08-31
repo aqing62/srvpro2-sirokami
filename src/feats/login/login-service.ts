@@ -200,9 +200,9 @@ export class LoginService {
       if (client.loggedIn) {
         const room = _event.room;
         const name = client.displayName || client.accountName;
+        // 只显示玩家选定的称号组合（client.ladderTitle 已是 主·副 选择结果）
         const badges: string[] = [];
         if (client.ladderTitle) badges.push(client.ladderTitle);
-        if (client.title) badges.push(client.title);
         const suffix = badges.length ? ` 🏆${badges.join(' · ')}` : '';
         await room.sendChat(
           `欢迎 ${name}${suffix} 进入房间`,
