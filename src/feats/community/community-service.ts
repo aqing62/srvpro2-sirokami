@@ -226,6 +226,11 @@ export class CommunityService {
       const database = db()!;
       const duelRepo = database.getRepository(DuelRecordEntity);
 
+      // 注册账号集合（用于判断对局双方是否都已登录 —— 天梯积分触发条件之一）
+      const userRepo = database.getRepository(User);
+      const users = await userRepo.find({ select: ['accountName'] as any });
+      const registered = new Set(users.map((u) => u.accountName));
+
       const records = await duelRepo
         .createQueryBuilder('record')
         .innerJoinAndSelect('record.players', 'players')
@@ -241,12 +246,22 @@ export class CommunityService {
       const duels = records.map((record) => {
         const me = (record.players || []).find((p) => p.name === accountName);
         const opponent = (record.players || []).find((p) => p !== me);
+        const roomName = record.name || '';
+        // 天梯积分触发判定：M# 或随机天梯房 + 非双打 + 双方都是注册账号（且非同一人）
+        const isLadderRoom =
+          roomName.startsWith('M#') || roomName.indexOf(',RANDOM#') !== -1;
+        const notTag = !(record.hostInfo && (record.hostInfo.mode & 0x2) !== 0);
+        const players = record.players || [];
+        const allRegistered =
+          players.length >= 2 && players.every((p) => registered.has(p.name));
+        const distinctPlayers = new Set(players.map((p) => p.name)).size === players.length;
         return {
           time: record.endTime,
-          roomName: record.name,
+          roomName,
           selfName: (me && (me.realName || me.name)) || accountName,
           opponentName: (opponent && (opponent.realName || opponent.name)) || '',
           replayCode: 'R#' + record.id,
+          ladder: !!(isLadderRoom && notTag && allRegistered && distinctPlayers),
         };
       });
 
