@@ -251,10 +251,14 @@ export class CommunityService {
       const database = db()!;
       const duelRepo = database.getRepository(DuelRecordEntity);
 
-      // 注册账号集合（用于判断对局双方是否都已登录 —— 天梯积分触发条件之一）
+      // 已启用的注册账号集合（用于判断对局双方是否真正登录 —— 与重算 recalculateAllRatings 判定一致）
       const userRepo = database.getRepository(User);
-      const users = await userRepo.find({ select: ['accountName'] as any });
-      const registered = new Set(users.map((u) => u.accountName));
+      const users = await userRepo.find({
+        select: ['accountName', 'enabled'] as any,
+      });
+      const registered = new Set(
+        users.filter((u) => u.enabled !== false).map((u) => u.accountName),
+      );
 
       const records = await duelRepo
         .createQueryBuilder('record')
@@ -273,13 +277,17 @@ export class CommunityService {
         const me = (record.players || []).find((p) => p.name === accountName);
         const opponent = (record.players || []).find((p) => p !== me);
         const roomName = record.name || '';
-        // 天梯积分触发判定：M# 或随机天梯房 + 非双打 + 双方都是注册账号（且非同一人）
+        // 天梯积分触发判定：M# 或随机天梯房 + 非双打 + 双方都是已启用注册账号（且非同一人）
+        // 关键：realName 含 '$' 表示用密码连接但未登录（与 recalculateAllRatings 排除逻辑一致），
+        //       这类对局从未真正计入天梯积分，故不显示天梯标记
         const isLadderRoom =
           roomName.startsWith('M#') || roomName.indexOf(',RANDOM#') !== -1;
         const notTag = !(record.hostInfo && (record.hostInfo.mode & 0x2) !== 0);
         const players = record.players || [];
         const allRegistered =
           players.length >= 2 && players.every((p) => registered.has(p.name));
+        const allReallyLoggedIn =
+          players.length >= 2 && players.every((p) => !(p.realName || '').includes('$'));
         const distinctPlayers = new Set(players.map((p) => p.name)).size === players.length;
         // 胜负判定：winMsg.player=2 的平局不会让任何玩家 winner=true
         const anyoneWon = players.some((p) => p.winner);
@@ -291,7 +299,7 @@ export class CommunityService {
           replayCode: 'R#' + record.id,
           win: !!(me && me.winner), // 本场我方是否获胜（金/银 标记用）
           draw: !!anyoneWon === false, // 平局（无人 winner）
-          ladder: !!(isLadderRoom && notTag && allRegistered && distinctPlayers),
+          ladder: !!(isLadderRoom && notTag && allRegistered && allReallyLoggedIn && distinctPlayers),
         };
       });
 
