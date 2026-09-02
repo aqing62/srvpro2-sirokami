@@ -281,12 +281,16 @@ export class CommunityService {
         const allRegistered =
           players.length >= 2 && players.every((p) => registered.has(p.name));
         const distinctPlayers = new Set(players.map((p) => p.name)).size === players.length;
+        // 胜负判定：winMsg.player=2 的平局不会让任何玩家 winner=true
+        const anyoneWon = players.some((p) => p.winner);
         return {
           time: record.endTime,
           roomName,
           selfName: (me && (me.realName || me.name)) || accountName,
           opponentName: (opponent && (opponent.realName || opponent.name)) || '',
           replayCode: 'R#' + record.id,
+          win: !!(me && me.winner), // 本场我方是否获胜（金/银 标记用）
+          draw: !!anyoneWon === false, // 平局（无人 winner）
           ladder: !!(isLadderRoom && notTag && allRegistered && distinctPlayers),
         };
       });
