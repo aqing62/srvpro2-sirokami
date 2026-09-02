@@ -234,7 +234,8 @@ export class CommunityService {
       const records = await duelRepo
         .createQueryBuilder('record')
         .innerJoinAndSelect('record.players', 'players')
-        .where('record."winReason" IS NOT NULL')
+        .where('record.valid = true')
+        .andWhere('record."winReason" IS NOT NULL')
         .andWhere(
           'EXISTS (SELECT 1 FROM duel_record_player me WHERE me."duelRecordId" = record.id AND me.name = :name)',
           { name: accountName },
