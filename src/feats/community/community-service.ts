@@ -8,6 +8,7 @@ import { User } from '../login';
 import { In } from 'typeorm';
 import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
 import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
+import { PlayerRating } from '../ladder';
 
 interface Ctx {
   database?: DataSource;
@@ -291,6 +292,58 @@ export class CommunityService {
       });
 
       koaCtx.body = { duels };
+    });
+
+    // ═══════════════════════════════════════════
+    // GET /api/forum/profile/ladder — 当前赛季天梯排名与段位
+    // ═══════════════════════════════════════════
+    this.ctx.router.get('/api/forum/profile/ladder', async (koaCtx) => {
+      const accountName = await requireAuth(koaCtx);
+      if (!accountName) { auth403(koaCtx); return; }
+      const database = db()!;
+      const ratingRepo = database.getRepository(PlayerRating);
+
+      // 段位分档（与 ladder-service TIER_PERCENTILES 保持一致，换赛季时同步更新）
+      const tierDefs = [
+        { name: 'S2 巅峰', pct: 0 },
+        { name: 'S2 大师', pct: 0.08 },
+        { name: 'S2 钻石', pct: 0.18 },
+        { name: 'S2 黄金', pct: 0.35 },
+        { name: 'S2 白银', pct: 0.60 },
+        { name: 'S2 参战者', pct: 1.0 },
+      ];
+      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+      const all = await ratingRepo
+        .createQueryBuilder('p')
+        .where('p.probationGames <= 0')
+        .orderBy('p.rating', 'DESC')
+        .getMany();
+
+      const eligible = all.filter((p) => p.uniqueOpponentCount >= 3);
+      const myIndex = eligible.findIndex((p) => p.accountName === accountName);
+
+      // 段位线以活跃（近7天）玩家为基础
+      const active = all.filter(
+        (p) => p.lastDuelAt && p.lastDuelAt.getTime() >= sevenDaysAgo,
+      );
+      const cutoffs = tierDefs.map((tier) => {
+        const idx = Math.max(0, Math.ceil(active.length * tier.pct) - 1);
+        return { name: tier.name, minRating: active.length ? active[idx].rating : 0 };
+      });
+
+      const me = all.find((p) => p.accountName === accountName);
+      const tierName = me
+        ? (cutoffs.find((c) => me.rating >= c.minRating)?.name || null)
+        : null;
+
+      koaCtx.body = {
+        rating: me ? me.rating : 0,
+        rank: myIndex === -1 ? null : myIndex + 1,
+        total: eligible.length,
+        tier: tierName,
+        onLadder: myIndex !== -1,
+      };
     });
 
     // ═══════════════════════════════════════════
