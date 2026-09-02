@@ -357,6 +357,96 @@ export class LadderService {
       }
     });
 
+    // API: /api/ladder/duels — 指定玩家的对局记录（时间/房间/对手/胜负/回放码/是否天梯）
+    this.ctx.router.get('/api/ladder/duels', async (koaCtx) => {
+      try {
+        const database = this.ctx.database;
+        if (!database) {
+          koaCtx.body = { error: '数据库未启用' };
+          return;
+        }
+
+        const player = String(koaCtx.query.player || '').trim();
+        if (!player) {
+          koaCtx.body = { error: '请提供 player 参数' };
+          return;
+        }
+
+        const limit = Math.min(
+          Math.max(parseInt(String(koaCtx.query.limit || '30'), 10) || 30, 1),
+          100,
+        );
+
+        const recordRepo = database.getRepository(DuelRecordEntity);
+        const userRepo = database.getRepository(User);
+        const registered = new Set(
+          (await userRepo.find({ select: ['accountName', 'enabled'] as any }))
+            .filter((u) => u.enabled !== false)
+            .map((u) => u.accountName),
+        );
+
+        // 该玩家参与的有效对局（name=账号名 / realName=显示名 均可命中）
+        const records = await recordRepo
+          .createQueryBuilder('record')
+          .leftJoinAndSelect('record.players', 'player')
+          .where('record.valid = true')
+          .andWhere('record."winReason" IS NOT NULL')
+          .andWhere(
+            'EXISTS (' +
+              'SELECT 1 FROM duel_record_player me ' +
+              'WHERE me."duelRecordId" = record.id ' +
+              'AND (me.name = :p1 OR me."realName" = :p2)' +
+              ')',
+            { p1: player, p2: player },
+          )
+          .orderBy('record.endTime', 'DESC')
+          .take(limit)
+          .getMany();
+
+        const duels = records.map((record) => {
+          const players = record.players || [];
+          const me = players.find(
+            (p) => p.name === player || p.realName === player,
+          );
+          const opponent = players.find((p) => p !== me);
+          const roomName = record.name || '';
+          // 天梯标记判定：与 /api/forum/profile/duels 一致（含 realName $ = 未登录 排除）
+          const isLadderRoom =
+            roomName.startsWith('M#') || roomName.indexOf(',RANDOM#') !== -1;
+          const notTag = !(record.hostInfo && (record.hostInfo.mode & 0x2) !== 0);
+          const allRegistered =
+            players.length >= 2 && players.every((p) => registered.has(p.name));
+          const allReallyLoggedIn =
+            players.length >= 2 &&
+            players.every((p) => !(p.realName || '').includes('$'));
+          const distinctPlayers =
+            new Set(players.map((p) => p.name)).size === players.length;
+          const anyoneWon = players.some((p) => p.winner);
+          return {
+            time: record.endTime,
+            roomName,
+            opponentName:
+              (opponent && (opponent.realName || opponent.name)) || '',
+            replayCode: 'R#' + record.id,
+            win: !!(me && me.winner),
+            draw: !anyoneWon,
+            ladder: !!(
+              isLadderRoom &&
+              notTag &&
+              allRegistered &&
+              allReallyLoggedIn &&
+              distinctPlayers
+            ),
+          };
+        });
+
+        koaCtx.body = { player, total: duels.length, duels };
+      } catch (err) {
+        koaCtx.status = 500;
+        koaCtx.body = { error: (err as Error).message };
+      }
+    });
+
     // API: /api/ladder/card-stats — 卡片使用率/胜率统计
     this.ctx.router.get('/api/ladder/card-stats', async (koaCtx) => {
       try {
