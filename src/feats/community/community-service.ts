@@ -6,6 +6,8 @@ import { CommunityLikeEntity } from './community-like.entity';
 import { CommunityUserProfileEntity } from './community-user-profile.entity';
 import { User } from '../login';
 import { In } from 'typeorm';
+import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
+import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
 
 interface Ctx {
   database?: DataSource;
@@ -213,6 +215,42 @@ export class CommunityService {
       }
       await userRepo.update({ accountName }, { selectedTitle, selectedTitle2 } as any);
       koaCtx.body = { ok: true, selectedTitle, selectedTitle2 };
+    });
+
+    // ═══════════════════════════════════════════
+    // GET /api/forum/profile/duels — 我的最近对局记录（时间/房间/对手/回放码 R#id）
+    // ═══════════════════════════════════════════
+    this.ctx.router.get('/api/forum/profile/duels', async (koaCtx) => {
+      const accountName = await requireAuth(koaCtx);
+      if (!accountName) { auth403(koaCtx); return; }
+      const database = db()!;
+      const duelRepo = database.getRepository(DuelRecordEntity);
+
+      const records = await duelRepo
+        .createQueryBuilder('record')
+        .innerJoinAndSelect('record.players', 'players')
+        .where('record."winReason" IS NOT NULL')
+        .andWhere(
+          'EXISTS (SELECT 1 FROM duel_record_player me WHERE me."duelRecordId" = record.id AND me.name = :name)',
+          { name: accountName },
+        )
+        .orderBy('record.endTime', 'DESC')
+        .take(30)
+        .getMany();
+
+      const duels = records.map((record) => {
+        const me = (record.players || []).find((p) => p.name === accountName);
+        const opponent = (record.players || []).find((p) => p !== me);
+        return {
+          time: record.endTime,
+          roomName: record.name,
+          selfName: (me && (me.realName || me.name)) || accountName,
+          opponentName: (opponent && (opponent.realName || opponent.name)) || '',
+          replayCode: 'R#' + record.id,
+        };
+      });
+
+      koaCtx.body = { duels };
     });
 
     // ═══════════════════════════════════════════
