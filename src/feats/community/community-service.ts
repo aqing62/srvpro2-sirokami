@@ -218,6 +218,30 @@ export class CommunityService {
     });
 
     // ═══════════════════════════════════════════
+    // POST /api/forum/profile/password — 修改登录密码
+    // ═══════════════════════════════════════════
+    this.ctx.router.post('/api/forum/profile/password', async (koaCtx) => {
+      const accountName = await requireAuth(koaCtx);
+      if (!accountName) { auth403(koaCtx); return; }
+      const body = JSON.parse(await readBody(koaCtx));
+      const oldPassword = String(body.oldPassword || '');
+      const newPassword = String(body.newPassword || body.password || '');
+      const database = db()!;
+      const userRepo = database.getRepository(User);
+      const user = await userRepo.findOneBy({ accountName } as any);
+      if (!user || user.password !== oldPassword) {
+        koaCtx.body = { error: '当前密码不正确' };
+        return;
+      }
+      if (newPassword.length < 6) {
+        koaCtx.body = { error: '新密码至少 6 位' };
+        return;
+      }
+      await userRepo.update({ accountName }, { password: newPassword } as any);
+      koaCtx.body = { ok: true };
+    });
+
+    // ═══════════════════════════════════════════
     // GET /api/forum/profile/duels — 我的最近对局记录（时间/房间/对手/回放码 R#id）
     // ═══════════════════════════════════════════
     this.ctx.router.get('/api/forum/profile/duels', async (koaCtx) => {
