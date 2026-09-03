@@ -951,6 +951,9 @@ export class LadderService {
     const oldDuels0 = r0.totalDuels;
     const oldRating1 = r1.rating;
     const oldDuels1 = r1.totalDuels;
+    // 每日首胜依据：本局开始前的 lastWinAt（win() 内部会把它更新为当前时间）
+    const prevLastWin0 = r0.lastWinAt;
+    const prevLastWin1 = r1.lastWinAt;
 
     let points0: number;
     let points1: number;
@@ -971,13 +974,13 @@ export class LadderService {
     r0.rating = Math.max(0, r0.rating + points0);
     r1.rating = Math.max(0, r1.rating + points1);
 
-    // 每日首胜 +2
+    // 每日首胜 +2（今天还没赢过才给：用本局前的 lastWinAt 判断）
     const dailyBonus = 2;
     const today = new Date().toDateString();
-    if (result === 0 && r0.lastDuelAt?.toDateString() !== today) {
+    if (result === 0 && prevLastWin0?.toDateString() !== today) {
       r0.rating = Math.max(0, r0.rating + dailyBonus);
       await p0.sendChat('☀️ 每日首胜 +2！', ChatColor.YELLOW);
-    } else if (result === 1 && r1.lastDuelAt?.toDateString() !== today) {
+    } else if (result === 1 && prevLastWin1?.toDateString() !== today) {
       r1.rating = Math.max(0, r1.rating + dailyBonus);
       await p1.sendChat('☀️ 每日首胜 +2！', ChatColor.YELLOW);
     }

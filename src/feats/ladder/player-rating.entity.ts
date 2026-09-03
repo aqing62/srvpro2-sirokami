@@ -33,6 +33,9 @@ export class PlayerRating {
   @Column('timestamp', { nullable: true })
   lastDuelAt?: Date;
 
+  @Column('timestamp', { nullable: true })
+  lastWinAt?: Date; // 最近一次获胜时间（每日首胜判定用，仅胜局更新）
+
   // --- 防小号刷分字段 ---
 
   @Column('int', { default: 5 })
@@ -57,6 +60,7 @@ export class PlayerRating {
       this.bestStreak = this.winStreak;
     }
     this.lastDuelAt = new Date();
+    this.lastWinAt = new Date(); // 每日首胜依据：记录本次获胜时间
     if (this.probationGames > 0) this.probationGames--;
   }
 
