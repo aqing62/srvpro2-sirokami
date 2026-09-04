@@ -51,7 +51,13 @@ export class LadderService {
 
     // 决斗结束：计算并记录 ELO
     this.ctx.middleware(OnRoomWin, async (event, _client, next) => {
-      await this.processDuelResult(event.room, event.winMsg.player);
+      // winMsg.type === 0x0 表示本局因投降结束（见 room.onSurrender / tag-surrender）
+      const surrendered = event.winMsg.type === 0x0;
+      await this.processDuelResult(
+        event.room,
+        event.winMsg.player,
+        surrendered,
+      );
       return next();
     });
 
@@ -892,7 +898,11 @@ export class LadderService {
     return { processed, skipped, errors };
   }
 
-  private async processDuelResult(room: Room, winPlayer: number | undefined) {
+  private async processDuelResult(
+    room: Room,
+    winPlayer: number | undefined,
+    surrendered = false, // 本局是否因投降结束（winMsg.type === 0x0）
+  ) {
     // 只在比赛房间计分
     if (!this.isMatchRoom(room)) return;
     if ((room.hostinfo.mode & 0x2) !== 0) return;
@@ -973,6 +983,21 @@ export class LadderService {
 
     r0.rating = Math.max(0, r0.rating + points0);
     r1.rating = Math.max(0, r1.rating + points1);
+
+    // 投降惩罚：输方（投降者）额外 -1 分（天梯积分仍不低于 0）
+    if (surrendered && result !== -1) {
+      const loserRating = result === 0 ? r1 : r0;
+      const loserClient = result === 0 ? p1 : p0;
+      loserRating.rating = Math.max(0, loserRating.rating - 1);
+      await loserClient.sendChat(
+        '⚠️ 本局投降，天梯积分 -1',
+        ChatColor.YELLOW,
+      );
+      await (result === 0 ? p0 : p1).sendChat(
+        '🏆 对方投降，你获得本局胜利！',
+        ChatColor.BABYBLUE,
+      );
+    }
 
     // 每日首胜 +2（今天还没赢过才给：用本局前的 lastWinAt 判断）
     const dailyBonus = 2;
