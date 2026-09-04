@@ -11,7 +11,7 @@ import { decodeDeckBase64 } from '../cloud-replay/utility';
 import { User } from '../login/user.entity';
 
 const WIN_POINTS = 10;               // 胜利基础分
-const DRAW_POINTS = 3;               // 平局得分
+const DRAW_POINTS = 5;               // 平局得分（双方各 +5）
 const WIN_BONUS_MAX = 5;             // 对手分高时的额外加分上限
 const MAX_SAME_OPPONENT_STREAK = 5;  // 同对手连胜上限，超过后不加分
 const MIN_UNIQUE_OPPONENTS = 3;      // 排行榜最低对手多样性
@@ -53,10 +53,13 @@ export class LadderService {
     this.ctx.middleware(OnRoomWin, async (event, _client, next) => {
       // winMsg.type === 0x0 表示本局因投降结束（见 room.onSurrender / tag-surrender）
       const surrendered = event.winMsg.type === 0x0;
+      // winMsg.player === 2 表示平局（死三/双方同时归零等，无人获胜）
+      const isDraw = event.winMsg.player === 2;
       await this.processDuelResult(
         event.room,
         event.winMsg.player,
         surrendered,
+        isDraw,
       );
       return next();
     });
@@ -902,6 +905,7 @@ export class LadderService {
     room: Room,
     winPlayer: number | undefined,
     surrendered = false, // 本局是否因投降结束（winMsg.type === 0x0）
+    isDraw = false,      // 本局是否平局（winMsg.player === 2，无人获胜）
   ) {
     // 只在比赛房间计分
     if (!this.isMatchRoom(room)) return;
@@ -951,8 +955,9 @@ export class LadderService {
     r1.displayName = p1.displayName || p1.accountName!;
 
     // Determine result: 0 = p0 wins, 1 = p1 wins, -1 = draw
+    // winMsg.player=2（平局）或 undefined 都按平局处理，不能误判成单边胜利
     const result =
-      winPlayer === undefined ? -1
+      isDraw || winPlayer === undefined ? -1
       : (room.isPosSwapped ? winPlayer !== 0 : winPlayer === 0) ? 0
       : 1;
 
