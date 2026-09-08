@@ -401,7 +401,15 @@ export class CommunityService {
         .getOne();
       if (!record) { koaCtx.body = { error: '回放不存在' }; return; }
 
-      // 解码消息流 → [{ name, hex }]
+      // 解码消息流 → [{ name, hex, f:{关键字段} }]
+      // 结构化提取白名单：这些字段直接输出，方便前端做回放视图
+      const FIELD_WHITELIST = [
+        'player', 'count', 'value', 'code', 'controller', 'location',
+        'sequence', 'position', 'reason', 'cards', 'type', 'phase',
+        'turnPlayer', 'step', 'subsequence', 'targets', 'attacker',
+        'target', 'hint', 'option', 'options', 'lp', 'info',
+        'previous', 'current', 'chainCardLocation',
+      ];
       let messages: any[] = [];
       try {
         const stocMsgs = decodeMessagesBase64(record.messages);
@@ -415,7 +423,31 @@ export class CommunityService {
             const payload = Buffer.from(msg.toPayload());
             hex = payload.toString('hex');
           } catch (e) { /* 忽略单条解析失败 */ }
-          return { name, hex, len: hex.length / 2 };
+          // 反射提取白名单字段
+          const f: Record<string, unknown> = {};
+          if (msg && typeof msg === 'object') {
+            FIELD_WHITELIST.forEach((k) => {
+              try {
+                const v = (msg as any)[k];
+                if (v === undefined) return;
+                if (Array.isArray(v)) {
+                  f[k] = v.slice(0, 32).map((x: any) =>
+                    typeof x === 'number' ? x : (x && x.code !== undefined ? x.code : x));
+                } else if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') {
+                  f[k] = v;
+                } else if (v && typeof v === 'object') {
+                  // 嵌套位置对象如 previous/current/chainCardLocation → 摊平
+                  f[k] = {
+                    controller: (v as any).controller,
+                    location: (v as any).location,
+                    sequence: (v as any).sequence,
+                    position: (v as any).position,
+                  };
+                }
+              } catch (e) { /* 单字段忽略 */ }
+            });
+          }
+          return { name, hex, len: hex.length / 2, f };
         });
       } catch (e) {
         koaCtx.body = { error: '回放消息解码失败: ' + String((e as Error).message || e) };
