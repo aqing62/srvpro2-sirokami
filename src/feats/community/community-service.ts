@@ -8,6 +8,7 @@ import { User } from '../login';
 import { In } from 'typeorm';
 import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
 import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
+import { decodeMessagesBase64 } from '../cloud-replay/utility';
 import { PlayerRating } from '../ladder';
 
 interface Ctx {
@@ -380,6 +381,67 @@ export class CommunityService {
       profile.avatarUpdatedAt = new Date();
       await profileRepo.save(profile);
       koaCtx.body = { ok: true, avatarVersion: profile.avatarVersion, canChangeAvatar: false };
+    });
+
+    // ═══════════════════════════════════════════
+    // GET /api/forum/replay/:id — 读取对局回放（公开，供官网网页回放）
+    // 返回：元信息 + 消息流（每条 = 消息类型名 + 原始 payload hex）
+    // ═══════════════════════════════════════════
+    this.ctx.router.get('/api/forum/replay/:id', async (koaCtx) => {
+      const database = db();
+      if (!database) { koaCtx.body = { error: '数据库未启用' }; return; }
+      const id = parseInt(koaCtx.params.id, 10);
+      if (!id || id <= 0) { koaCtx.body = { error: '无效的回放ID' }; return; }
+
+      const repo = database.getRepository(DuelRecordEntity);
+      const record = await repo
+        .createQueryBuilder('record')
+        .leftJoinAndSelect('record.players', 'player')
+        .where('record.id = :id', { id })
+        .getOne();
+      if (!record) { koaCtx.body = { error: '回放不存在' }; return; }
+
+      // 解码消息流 → [{ name, hex }]
+      let messages: any[] = [];
+      try {
+        const stocMsgs = decodeMessagesBase64(record.messages);
+        messages = stocMsgs.map((w: any) => {
+          const msg = w && w.msg;
+          const name = msg && msg.constructor
+            ? msg.constructor.name.replace(/^YGOProMsg/, '')
+            : 'UNKNOWN';
+          let hex = '';
+          try {
+            const payload = Buffer.from(msg.toPayload());
+            hex = payload.toString('hex');
+          } catch (e) { /* 忽略单条解析失败 */ }
+          return { name, hex, len: hex.length / 2 };
+        });
+      } catch (e) {
+        koaCtx.body = { error: '回放消息解码失败: ' + String((e as Error).message || e) };
+        return;
+      }
+
+      // 玩家摘要（名字/卡组张数）
+      const players = (record.players || []).map((p: any) => ({
+        name: p.name || '',
+        realName: p.realName || '',
+        pos: p.pos,
+        winner: !!p.winner,
+        score: p.score || 0,
+        mainc: p.ingameDeckMainc ?? p.currentDeckMainc ?? 0,
+      }));
+
+      koaCtx.body = {
+        id: Number(record.id),
+        roomName: record.name,
+        startTime: record.startTime,
+        endTime: record.endTime,
+        winReason: record.winReason ?? null,
+        players,
+        messageCount: messages.length,
+        messages,
+      };
     });
 
     // ═══════════════════════════════════════════
