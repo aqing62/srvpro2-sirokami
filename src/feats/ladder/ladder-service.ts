@@ -1015,18 +1015,25 @@ export class LadderService {
       r1, { rating: oldRating1, duels: oldDuels1 }, p1,
     );
 
-    // 定级赛进度提示
-    if (r0.probationGames > 0) {
-      await p0.sendChat(
-        `📋 定级赛进行中，还剩 ${r0.probationGames} 场即可上榜`,
-        ChatColor.YELLOW,
-      );
+    // 上榜进度提示：考察期满 + 与 MIN_UNIQUE_OPPONENTS 名不同对手对战过，二者都满足才进排行榜
+    const progressOf = (r: PlayerRating): string | null => {
+      const needProbation = r.probationGames > 0;
+      const needOpponents = r.uniqueOpponentCount < MIN_UNIQUE_OPPONENTS;
+      if (!needProbation && !needOpponents) return null;
+      const parts: string[] = [];
+      if (needProbation) parts.push(`定级赛剩余 ${r.probationGames} 场`);
+      if (needOpponents) {
+        parts.push(`不同对手 ${r.uniqueOpponentCount}/${MIN_UNIQUE_OPPONENTS}（还差 ${MIN_UNIQUE_OPPONENTS - r.uniqueOpponentCount} 名）`);
+      }
+      return parts.join(' · ');
+    };
+    const prog0 = progressOf(r0);
+    const prog1 = progressOf(r1);
+    if (prog0) {
+      await p0.sendChat(`📋 尚未上榜：${prog0}`, ChatColor.YELLOW);
     }
-    if (r1.probationGames > 0) {
-      await p1.sendChat(
-        `📋 定级赛进行中，还剩 ${r1.probationGames} 场即可上榜`,
-        ChatColor.YELLOW,
-      );
+    if (prog1) {
+      await p1.sendChat(`📋 尚未上榜：${prog1}`, ChatColor.YELLOW);
     }
   }
 
@@ -1256,11 +1263,15 @@ export class LadderService {
     }
     const r0 = rating0?.rating ?? 0;
     const r1 = rating1?.rating ?? 0;
-    // 状态文案：未上榜显示定级赛剩余场次
+    // 状态文案：上榜需「考察期满」且「与 MIN_UNIQUE_OPPONENTS 名不同对手对战过」
     const statusOf = (r: PlayerRating | null) => {
-      if (!r) return '首次参战，定级赛 5 场';
-      if (r.probationGames > 0) return `定级赛剩余 ${r.probationGames} 场`;
-      return `积分 ${r.rating}`;
+      if (!r) return `首次参战：定级赛 5 场 · 不同对手 0/${MIN_UNIQUE_OPPONENTS}`;
+      const parts: string[] = [];
+      if (r.probationGames > 0) parts.push(`定级赛剩余 ${r.probationGames} 场`);
+      if (r.uniqueOpponentCount < MIN_UNIQUE_OPPONENTS) {
+        parts.push(`不同对手 ${r.uniqueOpponentCount}/${MIN_UNIQUE_OPPONENTS}`);
+      }
+      return parts.length ? parts.join(' · ') : '已上榜';
     };
 
     // 全场通报（简洁）
@@ -1268,15 +1279,17 @@ export class LadderService {
       `⚔️ 天梯对局已生效：${name0} VS ${name1}｜本局胜负计入天梯积分`,
       ChatColor.GREEN,
     );
-    // 给双方各自的明确提示
+    // 给双方各自的明确提示（含上榜进度）
     await p0.sendChat(
-      `✅ 你已成功参加天梯对局｜${statusOf(rating0)}（现 ${r0} 分）｜对手：${name1}（${r1} 分）\n`
-      + '　胜利加分、每日首胜 +2、平局 +5、投降 -1',
+      `✅ 你已成功参加天梯对局（本局计入积分）｜当前 ${r0} 分\n`
+      + `　上榜进度：${statusOf(rating0)}（考核期 + 3 名不同对手）\n`
+      + `　对手：${name1}（${r1} 分）｜胜利 +10、每日首胜 +2、平局 +5、投降 -1`,
       ChatColor.BABYBLUE,
     );
     await p1.sendChat(
-      `✅ 你已成功参加天梯对局｜${statusOf(rating1)}（现 ${r1} 分）｜对手：${name0}（${r0} 分）\n`
-      + '　胜利加分、每日首胜 +2、平局 +5、投降 -1',
+      `✅ 你已成功参加天梯对局（本局计入积分）｜当前 ${r1} 分\n`
+      + `　上榜进度：${statusOf(rating1)}（考核期 + 3 名不同对手）\n`
+      + `　对手：${name0}（${r0} 分）｜胜利 +10、每日首胜 +2、平局 +5、投降 -1`,
       ChatColor.BABYBLUE,
     );
   }
