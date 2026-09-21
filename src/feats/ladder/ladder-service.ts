@@ -4,7 +4,7 @@ import { Context } from '../../app';
 import { Client } from '../../client';
 import { OnRoomWin, OnRoomGameStart, OnRoomPlayerReady, Room, DuelStage } from '../../room';
 import { KoishiContextService } from '../../koishi/koishi-context-service';
-import { PlayerRating } from './player-rating.entity';
+import { MAX_SURRENDER_PENALTY, PlayerRating } from './player-rating.entity';
 import { DuelRecordEntity } from '../cloud-replay/duel-record.entity';
 import { DuelRecordPlayer } from '../cloud-replay/duel-record-player.entity';
 import { decodeDeckBase64 } from '../cloud-replay/utility';
@@ -144,6 +144,10 @@ export class LadderService {
           ? `连胜: ${rating.winStreak}场  最佳连胜: ${rating.bestStreak}场`
           : `最佳连胜: ${rating.bestStreak}场`,
         `对手数: ${rating.uniqueOpponentCount}  (需${MIN_UNIQUE_OPPONENTS}名不同对手方可上榜)`,
+        // 当日投降累计（第 N 次投降扣 N 分，次日重置）
+        rating.nextSurrenderPenalty > 1
+          ? `今日投降: ${rating.surrendersToday} 次（下次投降 -${rating.nextSurrenderPenalty} 分）`
+          : '今日投降: 0 次（首次投降 -1 分）',
       );
       await client.sendChat(lines.join('\n'), ChatColor.GREEN);
     });
@@ -975,13 +979,17 @@ export class LadderService {
     r0.rating = Math.max(0, r0.rating + points0);
     r1.rating = Math.max(0, r1.rating + points1);
 
-    // 投降惩罚：输方（投降者）额外 -1 分（天梯积分仍不低于 0）
+    // 投降惩罚：当日第 N 次投降扣 N 分（上限 MAX_SURRENDER_PENALTY），次日重置为 -1
     if (surrendered && result !== -1) {
       const loserRating = result === 0 ? r1 : r0;
       const loserClient = result === 0 ? p1 : p0;
-      loserRating.rating = Math.max(0, loserRating.rating - 1);
+      const penalty = loserRating.registerSurrender();
+      loserRating.rating = Math.max(0, loserRating.rating - penalty);
+      const capNote = loserRating.surrendersToday >= MAX_SURRENDER_PENALTY
+        ? '（已达单日上限）'
+        : `（今日第 ${loserRating.surrendersToday} 次投降，下次 -${loserRating.nextSurrenderPenalty}）`;
       await loserClient.sendChat(
-        '⚠️ 本局投降，天梯积分 -1',
+        `⚠️ 本局投降：天梯积分 -${penalty} ${capNote}`,
         ChatColor.YELLOW,
       );
       await (result === 0 ? p0 : p1).sendChat(

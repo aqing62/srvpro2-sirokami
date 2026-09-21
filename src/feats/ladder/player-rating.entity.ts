@@ -1,5 +1,8 @@
 import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
 
+/** 单日投降扣分上限（当日第 N 次投降扣 N 分） */
+export const MAX_SURRENDER_PENALTY = 10;
+
 @Entity('player_rating')
 export class PlayerRating {
   @PrimaryColumn({ type: 'varchar', length: 64 })
@@ -50,6 +53,14 @@ export class PlayerRating {
   @Column({ type: 'text', default: '[]' })
   uniqueOpponents = '[]'; // 历史对手 JSON 数组
 
+  // --- 投降惩罚（当日第 N 次投降扣 N 分，次日重置）---
+
+  @Column('int', { default: 0 })
+  surrendersToday = 0; // 当日已投降次数
+
+  @Column({ type: 'varchar', length: 32, default: '' })
+  lastSurrenderDate = ''; // 上次投降所在日期（用于跨天重置计数）
+
   // ---
 
   win() {
@@ -86,6 +97,27 @@ export class PlayerRating {
       list.push(accountName);
       this.uniqueOpponents = JSON.stringify(list);
     }
+  }
+
+  /**
+   * 记录一次「当日投降」，返回本次应扣分数。
+   * 规则：同一天内第 N 次投降扣 N 分（1、2、3…），上限 MAX_SURRENDER_PENALTY；跨天重置为 -1。
+   */
+  registerSurrender(): number {
+    const today = new Date().toDateString();
+    if (this.lastSurrenderDate !== today) {
+      this.lastSurrenderDate = today;
+      this.surrendersToday = 0;
+    }
+    this.surrendersToday++;
+    return Math.min(this.surrendersToday, MAX_SURRENDER_PENALTY);
+  }
+
+  /** 下一次投降将扣的分数（用于提示） */
+  get nextSurrenderPenalty(): number {
+    const today = new Date().toDateString();
+    const count = this.lastSurrenderDate === today ? this.surrendersToday : 0;
+    return Math.min(count + 1, MAX_SURRENDER_PENALTY);
   }
 
   get uniqueOpponentCount(): number {
