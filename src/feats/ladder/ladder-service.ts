@@ -907,29 +907,15 @@ export class LadderService {
     surrendered = false, // 本局是否因投降结束（winMsg.type === 0x0）
     isDraw = false,      // 本局是否平局（winMsg.player === 2，无人获胜）
   ) {
-    // 只在比赛房间计分
-    if (!this.isMatchRoom(room)) return;
-    if ((room.hostinfo.mode & 0x2) !== 0) return;
-
+    // 资格判定与「天梯对局已生效」提示共用同一套规则，避免提示与实际计分不一致
+    const el = this.getLadderEligibility(room);
+    if (!el.ok) {
+      this.ctx.createLogger('Ladder').debug(`本局不计入天梯积分：${el.reason}`);
+      return;
+    }
     const players = room.playingPlayers;
-    if (players.length < 2) return;
-
-    // 找到两个玩家
-    const p0 = players.find((c) => c.pos === 0);
-    const p1 = players.find((c) => c.pos === 1);
-    if (!p0 || !p1) return;
-
-    // 双方都必须登录
-    if (!p0.loggedIn || !p1.loggedIn) return;
-
-    // 排除 bot（名字以特殊标记或 isInternal）
-    if (p0.isInternal || p1.isInternal) return;
-
-    // 排除自己打自己
-    if (p0.accountName === p1.accountName) return;
-
-    // 排除同 IP
-    if (p0.ip && p1.ip && p0.ip === p1.ip) return;
+    const p0 = el.p0!;
+    const p1 = el.p1!;
 
     const database = this.ctx.database;
     if (!database) return;
@@ -1166,6 +1152,58 @@ export class LadderService {
   }
 
   /**
+   * 天梯计分资格判定（提示与计分共用同一套规则）。
+   * ok=false 时 reason 为可直接展示给玩家的原因。
+   *
+   * 达成条件（全部满足才计入天梯积分）：
+   *  1. 天梯房：M# 房间 或 随机天梯房
+   *  2. 房间未开启「先攻不可攻击」（mode & 0x2，双打/娱乐规则不计分）
+   *  3. 两名参战玩家（pos 0 / 1）
+   *  4. 双方均已登录官网账号
+   *  5. 对手不是系统/AI 玩家
+   *  6. 双方不是同一账号、且不在同一 IP 下
+   */
+  getLadderEligibility(room: Room): {
+    ok: boolean;
+    reason: string;
+    p0?: Client;
+    p1?: Client;
+  } {
+    if (!this.isMatchRoom(room)) {
+      return { ok: false, reason: '房间需为天梯房（M# 房或随机天梯房）' };
+    }
+    if ((room.hostinfo.mode & 0x2) !== 0) {
+      return { ok: false, reason: '房间需开启「先攻不可攻击」（双打/娱乐规则不计分）' };
+    }
+    const players = room.playingPlayers;
+    const p0 = players.find((c) => c.pos === 0);
+    const p1 = players.find((c) => c.pos === 1);
+    if (players.length < 2 || !p0 || !p1) {
+      return { ok: false, reason: '需要两名参战玩家' };
+    }
+    const name0 = p0.displayName || p0.accountName || '玩家1';
+    const name1 = p1.displayName || p1.accountName || '玩家2';
+    if (!p0.loggedIn || !p1.loggedIn) {
+      const who = !p0.loggedIn && !p1.loggedIn
+        ? `${name0}、${name1}`
+        : (!p0.loggedIn ? name0 : name1);
+      return { ok: false, reason: `双方都需登录官网账号（${who} 未登录）`, p0, p1 };
+    }
+    if (p0.isInternal || p1.isInternal) {
+      return { ok: false, reason: '对手为系统/AI 玩家', p0, p1 };
+    }
+    if (p0.accountName && p0.accountName === p1.accountName) {
+      return { ok: false, reason: '不能与同一账号对战', p0, p1 };
+    }
+    const ip0 = (p0 as any).ip;
+    const ip1 = (p1 as any).ip;
+    if (ip0 && ip1 && ip0 === ip1) {
+      return { ok: false, reason: '不能与同一网络（IP）下的账号对战', p0, p1 };
+    }
+    return { ok: true, reason: '', p0, p1 };
+  }
+
+  /**
    * 计算胜者得分：基础分 + 对手分高奖励（上限 WIN_BONUS_MAX）。
    * 同一对手连胜超过 MAX_SAME_OPPONENT_STREAK 场后返回 0，不再加分。
    */
@@ -1187,34 +1225,59 @@ export class LadderService {
   }
 
   private async announceLadderMode(room: Room) {
-    if (!this.isMatchRoom(room)) return;
-    if ((room.hostinfo.mode & 0x2) !== 0) return;
-    const players = room.playingPlayers;
-    if (players.length < 2) return;
-    const p0 = players.find((c) => c.pos === 0);
-    const p1 = players.find((c) => c.pos === 1);
-    if (!p0 || !p1) return;
-    if (!p0.loggedIn || !p1.loggedIn) return;
-    if (p0.isInternal || p1.isInternal) return;
+    const el = this.getLadderEligibility(room);
+    // 准备阶段与开局阶段都会触发；同一批玩家只提示一次，避免刷屏
+    const key = `${(room as any).duelStage}|${room.playingPlayers
+      .map((c) => c.accountName || c.pos)
+      .join('|')}`;
+    if ((room as any).__ladderNoticeKey === key) return;
+    (room as any).__ladderNoticeKey = key;
 
-    const name0 = p0.displayName || p0.accountName;
-    const name1 = p1.displayName || p1.accountName;
+    // 不满足条件：明确说明原因（原来静默不提示，玩家容易误解）
+    if (!el.ok) {
+      await room.sendChat(`⚠️ 本局不计入天梯积分：${el.reason}`, ChatColor.YELLOW);
+      return;
+    }
 
-    let r0 = 0, r1 = 0;
+    const p0 = el.p0!;
+    const p1 = el.p1!;
+    const name0 = p0.displayName || p0.accountName || '玩家1';
+    const name1 = p1.displayName || p1.accountName || '玩家2';
+
+    let rating0: PlayerRating | null = null;
+    let rating1: PlayerRating | null = null;
     const database = this.ctx.database;
     if (database) {
       const repo = database.getRepository(PlayerRating);
-      const [rating0, rating1] = await Promise.all([
+      [rating0, rating1] = await Promise.all([
         repo.findOne({ where: { accountName: p0.accountName! } }),
         repo.findOne({ where: { accountName: p1.accountName! } }),
       ]);
-      if (rating0) r0 = rating0.rating;
-      if (rating1) r1 = rating1.rating;
     }
+    const r0 = rating0?.rating ?? 0;
+    const r1 = rating1?.rating ?? 0;
+    // 状态文案：未上榜显示定级赛剩余场次
+    const statusOf = (r: PlayerRating | null) => {
+      if (!r) return '首次参战，定级赛 5 场';
+      if (r.probationGames > 0) return `定级赛剩余 ${r.probationGames} 场`;
+      return `积分 ${r.rating}`;
+    };
 
+    // 全场通报（简洁）
     await room.sendChat(
-      `${name0}(${r0}) VS ${name1}(${r1}) — 双方已登录，本次决斗计入天梯积分`,
+      `⚔️ 天梯对局已生效：${name0} VS ${name1}｜本局胜负计入天梯积分`,
       ChatColor.GREEN,
+    );
+    // 给双方各自的明确提示
+    await p0.sendChat(
+      `✅ 你已成功参加天梯对局｜${statusOf(rating0)}（现 ${r0} 分）｜对手：${name1}（${r1} 分）\n`
+      + '　胜利加分、每日首胜 +2、平局 +5、投降 -1',
+      ChatColor.BABYBLUE,
+    );
+    await p1.sendChat(
+      `✅ 你已成功参加天梯对局｜${statusOf(rating1)}（现 ${r1} 分）｜对手：${name0}（${r0} 分）\n`
+      + '　胜利加分、每日首胜 +2、平局 +5、投降 -1',
+      ChatColor.BABYBLUE,
     );
   }
 }
