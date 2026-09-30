@@ -1047,12 +1047,12 @@ export class LadderService {
 
   // 段位百分比（从高到低），最后一项 pct=1.00 兜底
   private readonly TIER_PERCENTILES = [
-    { name: 'S2 巅峰', pct: 0 },   // 第1名专属（0% → 取最高分）
-    { name: 'S2 大师', pct: 0.08 },
-    { name: 'S2 钻石', pct: 0.18 },
-    { name: 'S2 黄金', pct: 0.35 },
-    { name: 'S2 白银', pct: 0.60 },
-    { name: 'S2 参战者', pct: 1.00 },
+    { name: 'S3 巅峰', pct: 0 },   // 第1名专属（0% → 取最高分）
+    { name: 'S3 大师', pct: 0.08 },
+    { name: 'S3 钻石', pct: 0.18 },
+    { name: 'S3 黄金', pct: 0.35 },
+    { name: 'S3 白银', pct: 0.60 },
+    { name: 'S3 参战者', pct: 1.00 },
   ];
 
   /**
