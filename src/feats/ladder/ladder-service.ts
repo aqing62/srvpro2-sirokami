@@ -14,7 +14,7 @@ const WIN_POINTS = 10;               // 胜利基础分
 const DRAW_POINTS = 5;               // 平局得分（双方各 +5）
 const WIN_BONUS_MAX = 5;             // 对手分高时的额外加分上限
 const MAX_SAME_OPPONENT_STREAK = 5;  // 同对手连胜上限，超过后不加分
-const MIN_UNIQUE_OPPONENTS = 3;      // 排行榜最低对手多样性
+const MIN_UNIQUE_OPPONENTS = 0;      // 已取消对手多样性要求（改回 3 即可恢复）
 const DIY_RATING = 150;              // DIY 投稿资格分数
 
 function loadCardMergeMap(): Record<number, number> {
@@ -143,7 +143,7 @@ export class LadderService {
         rating.winStreak > 1
           ? `连胜: ${rating.winStreak}场  最佳连胜: ${rating.bestStreak}场`
           : `最佳连胜: ${rating.bestStreak}场`,
-        `对手数: ${rating.uniqueOpponentCount}  (需${MIN_UNIQUE_OPPONENTS}名不同对手方可上榜)`,
+        `对手数: ${rating.uniqueOpponentCount}`,
         // 当日投降累计（第 N 次投降扣 N 分，次日重置）
         rating.nextSurrenderPenalty > 1
           ? `今日投降: ${rating.surrendersToday} 次（下次投降 -${rating.nextSurrenderPenalty} 分）`
@@ -214,7 +214,7 @@ export class LadderService {
             );
           } else {
             lines.push(
-              `...\n你暂未满足上榜条件（考察期剩余${myRating.probationGames}场 / 对手数${myRating.uniqueOpponentCount}/${MIN_UNIQUE_OPPONENTS}）`,
+              `...\n你暂未满足上榜条件（考察期剩余${myRating.probationGames}场）`,
             );
           }
         }
@@ -1156,7 +1156,7 @@ export class LadderService {
     // DIY 投稿资格提示（积分 ≥150）
     if (old.rating < DIY_RATING && rating.rating >= DIY_RATING) {
       await client.sendChat(
-        '📝 你已获得 DIY 投稿资格（积分≥150），联系群主提交卡稿吧！',
+        '📝 你已获得【本赛季】DIY 投稿资格（天梯 150 分），联系群主提交卡稿吧！',
         ChatColor.YELLOW,
       );
     }
@@ -1273,7 +1273,7 @@ export class LadderService {
     const r1 = rating1?.rating ?? 0;
     // 状态文案：上榜需「考察期满」且「与 MIN_UNIQUE_OPPONENTS 名不同对手对战过」
     const statusOf = (r: PlayerRating | null) => {
-      if (!r) return `首次参战：定级赛 5 场 · 不同对手 0/${MIN_UNIQUE_OPPONENTS}`;
+      if (!r) return '首次参战：定级赛 5 场';
       const parts: string[] = [];
       if (r.probationGames > 0) parts.push(`定级赛剩余 ${r.probationGames} 场`);
       if (r.uniqueOpponentCount < MIN_UNIQUE_OPPONENTS) {
@@ -1290,13 +1290,13 @@ export class LadderService {
     // 给双方各自的明确提示（含上榜进度）
     await p0.sendChat(
       `✅ 你已成功参加天梯对局（本局计入积分）｜当前 ${r0} 分\n`
-      + `　上榜进度：${statusOf(rating0)}（考核期 + 3 名不同对手）\n`
+      + `　上榜进度：${statusOf(rating0)}（考核期）\n`
       + `　对手：${name1}（${r1} 分）｜胜利 +10、每日首胜 +2、平局 +5、投降 -1`,
       ChatColor.BABYBLUE,
     );
     await p1.sendChat(
       `✅ 你已成功参加天梯对局（本局计入积分）｜当前 ${r1} 分\n`
-      + `　上榜进度：${statusOf(rating1)}（考核期 + 3 名不同对手）\n`
+      + `　上榜进度：${statusOf(rating1)}（考核期）\n`
       + `　对手：${name0}（${r0} 分）｜胜利 +10、每日首胜 +2、平局 +5、投降 -1`,
       ChatColor.BABYBLUE,
     );
