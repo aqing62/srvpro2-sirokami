@@ -147,3 +147,76 @@ if (changed || ladderChanged) {
   console.log('\n== 一共改了 ' + (changed + ladderChanged) + ' 个文件 ==');
   console.log('   下一步：pm2 restart srvpro2_siro:50010');
 }
+
+// ══════════════════════════════════════════════════════════════
+// 第三组补丁：随机匹配房（M#）规则
+//   ① 房主不能踢人（没准备的一方交给超时机制自动请出）
+//   ② config.yaml 里的准备倒计时 20 → 30 秒
+// ══════════════════════════════════════════════════════════════
+const KICK_MARK = '随机匹配房间不能踢人';
+const KICK_GUARD_JS = [
+  '        // 随机匹配房（M#）不允许房主踢人：没准备的一方交给超时机制自动请出',
+  '        if (this.randomType || /^M#/.test(this.name || \'\')) {',
+  "            await this.sendChat('随机匹配房间不能踢人：没准备的一方会在倒计时结束后被系统自动请出。');",
+  '            return;',
+  '        }',
+].join('\n');
+const KICK_GUARD_TS = [
+  '    // 随机匹配房（M#）不允许房主踢人：没准备的一方交给超时机制自动请出',
+  "    if (this.randomType || /^M#/.test(this.name || '')) {",
+  "      await this.sendChat('随机匹配房间不能踢人：没准备的一方会在倒计时结束后被系统自动请出。');",
+  '      return;',
+  '    }',
+].join('\n');
+
+const KICK_TARGETS = [
+  {
+    rel: 'dist/src/room/room.js',
+    from: "    async onKick(client, msg) {\n        // 只有 host 可以踢人\n        if (!client.isHost) {\n            return;\n        }\n        // 不能踢自己\n        if (client.pos === msg.pos) {\n            return;\n        }",
+    guard: KICK_GUARD_JS,
+  },
+  {
+    rel: 'src/room/room.ts',
+    from: "  private async onKick(client: Client, msg: YGOProCtosKick) {\n    // 只有 host 可以踢人\n    if (!client.isHost) {\n      return;\n    }\n\n    // 不能踢自己\n    if (client.pos === msg.pos) {\n      return;\n    }\n",
+    guard: KICK_GUARD_TS,
+  },
+];
+let kickChanged = 0;
+console.log('\n== 随机房规则补丁（房主不能踢人 + 准备倒计时 30 秒）==');
+for (const t of KICK_TARGETS) {
+  const file = path.join(ROOT, t.rel);
+  if (!fs.existsSync(file)) { console.log('  [跳过] ' + t.rel + ' 不存在'); continue; }
+  let s = fs.readFileSync(file, 'utf8');
+  if (s.includes(KICK_MARK)) { console.log('  [已打过] ' + t.rel); continue; }
+  if (!s.includes(t.from)) {
+    console.log('  [警告] ' + t.rel + ' 没找到目标代码（上游可能改过），请人工确认');
+    continue;
+  }
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  fs.writeFileSync(file + '.bak-' + stamp, s);
+  fs.writeFileSync(file, s.replace(t.from, t.from + '\n' + t.guard + '\n'));
+  console.log('  [已打补丁] ' + t.rel + '（备份 ' + path.basename(file) + '.bak-' + stamp + '）');
+  kickChanged++;
+}
+
+// config.yaml：准备倒计时 30 秒
+const cfgFile = path.join(ROOT, 'config.yaml');
+if (fs.existsSync(cfgFile)) {
+  const cfg = fs.readFileSync(cfgFile, 'utf8');
+  if (/^randomDuelReadyTime:\s*30\s*$/m.test(cfg)) {
+    console.log('  [已打过] config.yaml（倒计时已是 30 秒）');
+  } else if (/^randomDuelReadyTime:\s*20\s*$/m.test(cfg)) {
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    fs.writeFileSync(cfgFile + '.bak-' + stamp, cfg);
+    fs.writeFileSync(cfgFile, cfg.replace(/^randomDuelReadyTime:\s*20\s*$/m, 'randomDuelReadyTime: 30'));
+    console.log('  [已打补丁] config.yaml：randomDuelReadyTime 20 → 30 秒');
+    kickChanged++;
+  } else {
+    console.log('  [警告] config.yaml 里没找到 randomDuelReadyTime: 20，请人工确认');
+  }
+}
+
+if (kickChanged) {
+  console.log('\n== 随机房规则：改了 ' + kickChanged + ' 个文件 ==');
+  console.log('   下一步：pm2 restart srvpro2_siro:50010');
+}
