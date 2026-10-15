@@ -220,3 +220,178 @@ if (kickChanged) {
   console.log('\n== 随机房规则：改了 ' + kickChanged + ' 个文件 ==');
   console.log('   下一步：pm2 restart srvpro2_siro:50010');
 }
+
+// ══════════════════════════════════════════════════════════════
+// 第四组补丁：满人后「双方都没准备」→ 倒计时结束解散房间
+//   （原逻辑只处理“恰好一人没准备”，两人都不准备时什么都不做）
+// ══════════════════════════════════════════════════════════════
+const DISSOLVE_MARK = '双方都未准备将解散房间';
+const WFP_JS = 'dist/src/feats/wait-for-player-provider.js';
+const WFP_TS = 'src/feats/wait-for-player-provider.ts';
+
+const DISSOLVE_JS_METHOD = [
+'    // 满人且「所有人都没准备」→ 倒计时后解散房间（原逻辑只处理“恰好一人没准备”）',
+'    async tickAllUnreadyDissolve(room, nowMs, timeoutMs) {',
+'        if (timeoutMs <= 0) {',
+'            room.waitForAllUnreadyDeadlineMs = undefined;',
+'            return false;',
+'        }',
+'        const players = room.playingPlayers;',
+'        const required = room.randomDuelMaxPlayer || room.players.length;',
+'        const unready = players.filter((player) => !player.deck);',
+'        const allUnready = players.length >= required && unready.length > 0 && unready.length === players.length;',
+'        if (!allUnready) {',
+'            room.waitForAllUnreadyDeadlineMs = undefined;',
+'            room.waitForAllUnreadyWarnRemain = undefined;',
+'            return false;',
+'        }',
+'        if (!room.waitForAllUnreadyDeadlineMs) {',
+'            room.waitForAllUnreadyDeadlineMs = nowMs + timeoutMs;',
+'            const seconds = Math.round(timeoutMs / 1000);',
+'            await room.sendChat(`本局 ${seconds} 秒后开始：请双方准备，${seconds} 秒内双方都未准备将解散房间。`, ChatColor.LIGHTBLUE);',
+'            return true;',
+'        }',
+'        const remainSeconds = Math.ceil((room.waitForAllUnreadyDeadlineMs - nowMs) / 1000);',
+'        if (remainSeconds > 0) {',
+'            if (remainSeconds % 5 === 0 && room.waitForAllUnreadyWarnRemain !== remainSeconds) {',
+'                room.waitForAllUnreadyWarnRemain = remainSeconds;',
+'                await room.sendChat(`还剩 ${remainSeconds} 秒：双方都未准备将解散房间。`, remainSeconds <= 9 ? ChatColor.RED : ChatColor.LIGHTBLUE);',
+'            }',
+'            return true;',
+'        }',
+"        await room.sendChat('双方均未准备，房间已解散。', ChatColor.RED);",
+'        room.waitForAllUnreadyDeadlineMs = undefined;',
+'        room.waitForAllUnreadyWarnRemain = undefined;',
+'        for (const player of players.slice()) {',
+'            try {',
+'                player.disconnect();',
+'            } catch (error) {',
+'            }',
+'        }',
+'        return true;',
+'    }',
+''].join('\n');
+
+const DISSOLVE_JS_CALL = [
+'        // 满人 + 双方都没准备 → 走解散流程',
+'        if (await this.tickAllUnreadyDissolve(room, nowMs, runtime.options.readyTimeoutMs)) {',
+'            return;',
+'        }',
+''].join('\n');
+
+const DISSOLVE_TS_METHOD = [
+'  // 满人且「所有人都没准备」→ 倒计时后解散房间（原逻辑只处理“恰好一人没准备”）',
+'  private async tickAllUnreadyDissolve(',
+'    room: Room,',
+'    nowMs: number,',
+'    timeoutMs: number,',
+'  ): Promise<boolean> {',
+'    if (timeoutMs <= 0) {',
+'      room.waitForAllUnreadyDeadlineMs = undefined;',
+'      return false;',
+'    }',
+'    const players = room.playingPlayers;',
+'    const required = room.randomDuelMaxPlayer || room.players.length;',
+'    const unready = players.filter((player) => !player.deck);',
+'    const allUnready =',
+'      players.length >= required && unready.length > 0 && unready.length === players.length;',
+'    if (!allUnready) {',
+'      room.waitForAllUnreadyDeadlineMs = undefined;',
+'      room.waitForAllUnreadyWarnRemain = undefined;',
+'      return false;',
+'    }',
+'    if (!room.waitForAllUnreadyDeadlineMs) {',
+'      room.waitForAllUnreadyDeadlineMs = nowMs + timeoutMs;',
+'      const seconds = Math.round(timeoutMs / 1000);',
+'      await room.sendChat(',
+'        `本局 ${seconds} 秒后开始：请双方准备，${seconds} 秒内双方都未准备将解散房间。`,',
+'        ChatColor.LIGHTBLUE,',
+'      );',
+'      return true;',
+'    }',
+'    const remainSeconds = Math.ceil(',
+'      (room.waitForAllUnreadyDeadlineMs - nowMs) / 1000,',
+'    );',
+'    if (remainSeconds > 0) {',
+'      if (',
+'        remainSeconds % 5 === 0 &&',
+'        room.waitForAllUnreadyWarnRemain !== remainSeconds',
+'      ) {',
+'        room.waitForAllUnreadyWarnRemain = remainSeconds;',
+'        await room.sendChat(',
+'          `还剩 ${remainSeconds} 秒：双方都未准备将解散房间。`,',
+'          remainSeconds <= 9 ? ChatColor.RED : ChatColor.LIGHTBLUE,',
+'        );',
+'      }',
+'      return true;',
+'    }',
+"    await room.sendChat('双方均未准备，房间已解散。', ChatColor.RED);",
+'    room.waitForAllUnreadyDeadlineMs = undefined;',
+'    room.waitForAllUnreadyWarnRemain = undefined;',
+'    for (const player of players.slice()) {',
+'      try {',
+'        player.disconnect();',
+'      } catch (error) {',
+'        void error;',
+'      }',
+'    }',
+'    return true;',
+'  }',
+''].join('\n');
+
+const DISSOLVE_TS_CALL = [
+'    // 满人 + 双方都没准备 → 走解散流程',
+'    if (',
+'      await this.tickAllUnreadyDissolve(',
+'        room,',
+'        nowMs,',
+'        runtime.options.readyTimeoutMs,',
+'      )',
+'    ) {',
+'      return;',
+'    }',
+''].join('\n');
+
+const DISSOLVE_TS_DECL_FROM = '    waitForPlayerHangWarnElapsed?: number;';
+const DISSOLVE_TS_DECL_TO = [
+'    waitForPlayerHangWarnElapsed?: number;',
+'    waitForAllUnreadyDeadlineMs?: number;',
+'    waitForAllUnreadyWarnRemain?: number;',
+].join('\n');
+
+function applyDissolve(rel, anchorMethod, method, callAnchor, call, declFrom, declTo) {
+  const file = path.join(ROOT, rel);
+  if (!fs.existsSync(file)) { console.log('  [跳过] ' + rel + ' 不存在'); return 0; }
+  let s = fs.readFileSync(file, 'utf8');
+  if (s.includes(DISSOLVE_MARK)) { console.log('  [已打过] ' + rel); return 0; }
+  if (!s.includes(anchorMethod) || !s.includes(callAnchor)) {
+    console.log('  [警告] ' + rel + ' 找不到锚点，请人工确认');
+    return 0;
+  }
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  fs.writeFileSync(file + '.bak-' + stamp, s);
+  s = s.replace(anchorMethod, method + anchorMethod);
+  s = s.replace(callAnchor, call + callAnchor);
+  if (declFrom && declTo && s.includes(declFrom)) s = s.replace(declFrom, declTo);
+  fs.writeFileSync(file, s);
+  console.log('  [已打补丁] ' + rel + '（备份 .bak-' + stamp + '）');
+  return 1;
+}
+
+console.log('\n== 随机房「双方都没准备解散房间」补丁 ==');
+let dissolveChanged = 0;
+dissolveChanged += applyDissolve(
+  WFP_JS,
+  '    async tickReadyTimeout(runtime, room, nowMs) {', DISSOLVE_JS_METHOD,
+  '        const target = this.getReadyTimeoutTarget(room);', DISSOLVE_JS_CALL,
+);
+dissolveChanged += applyDissolve(
+  WFP_TS,
+  '  private async tickReadyTimeout(', DISSOLVE_TS_METHOD,
+  '    const target = this.getReadyTimeoutTarget(room);', DISSOLVE_TS_CALL,
+  DISSOLVE_TS_DECL_FROM, DISSOLVE_TS_DECL_TO,
+);
+if (dissolveChanged) {
+  console.log('\n== 改了 ' + dissolveChanged + ' 个文件 ==');
+  console.log('   下一步：pm2 restart srvpro2_siro:50010');
+}
