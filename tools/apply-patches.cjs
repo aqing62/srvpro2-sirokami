@@ -395,3 +395,39 @@ if (dissolveChanged) {
   console.log('\n== 改了 ' + dissolveChanged + ' 个文件 ==');
   console.log('   下一步：pm2 restart srvpro2_siro:50010');
 }
+
+// ══════════════════════════════════════════════════════════════
+// 第五组补丁：D# 比赛房改成单局（BO1）
+//   registerRoomMode('D') 原本设 winMatchCount=2（三局两胜），改成 1（单局）。
+//   注意不能动 (M|MATCH) 那条，它同样是 2。
+// ══════════════════════════════════════════════════════════════
+const D_TARGETS = [
+  {
+    rel: 'dist/src/room/default-hostinfo-provder.js',
+    re: /(\.registerRoomMode\('D', \(\{ hostinfo \}\) => \(\{\s*\n\s*mode: setWinMatchCountBits\(hostinfo\.mode, )2(\),)/,
+    check: /\.registerRoomMode\('D', \(\{ hostinfo \}\) => \(\{\s*\n\s*mode: setWinMatchCountBits\(hostinfo\.mode, 1\),/,
+  },
+  {
+    rel: 'src/room/default-hostinfo-provder.ts',
+    re: /(\.registerRoomMode\('D', \(\{ hostinfo \}\) => \(\{\s*\n\s*mode: setWinMatchCountBits\(hostinfo\.mode, )2(\),)/,
+    check: /\.registerRoomMode\('D', \(\{ hostinfo \}\) => \(\{\s*\n\s*mode: setWinMatchCountBits\(hostinfo\.mode, 1\),/,
+  },
+];
+let bo1Changed = 0;
+console.log('\n== D# 比赛房改成单局（BO1）补丁 ==');
+for (const t of D_TARGETS) {
+  const file = path.join(ROOT, t.rel);
+  if (!fs.existsSync(file)) { console.log('  [跳过] ' + t.rel + ' 不存在'); continue; }
+  const s = fs.readFileSync(file, 'utf8');
+  if (t.check.test(s)) { console.log('  [已打过] ' + t.rel); continue; }
+  if (!t.re.test(s)) { console.log('  [警告] ' + t.rel + ' 没匹配到 D 模式定义，请人工确认'); continue; }
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  fs.writeFileSync(file + '.bak-' + stamp, s);
+  fs.writeFileSync(file, s.replace(t.re, '$11$2'));
+  console.log('  [已打补丁] ' + t.rel + '（D# → 单局，备份 ' + path.basename(file) + '.bak-' + stamp + '）');
+  bo1Changed++;
+}
+if (bo1Changed) {
+  console.log('\n== D# 单局：改了 ' + bo1Changed + ' 个文件 ==');
+  console.log('   下一步：pm2 restart srvpro2_siro:50010');
+}
