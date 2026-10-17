@@ -431,3 +431,45 @@ if (bo1Changed) {
   console.log('\n== D# 单局：改了 ' + bo1Changed + ' 个文件 ==');
   console.log('   下一步：pm2 restart srvpro2_siro:50010');
 }
+
+// ══════════════════════════════════════════════════════════════
+// 第六组补丁：称号展示统一（手动 /login 也要按「官网选定主 + 副」）
+//   login-service 的 /login 分支直接 `client.ladderTitle = entry.ladderTitle`
+//   （= 赛季结算写入的 ladderTitle）→ 玩家在官网选的称号对它永远不生效，
+//   而官网却提示「称号已保存，游戏内下次登录生效」。
+//   自动登录分支早就是 selectedTitle || ladderTitle 拼主副，这里把 /login 对齐。
+// ══════════════════════════════════════════════════════════════
+const TITLE_LOGIN_OLD = "client.ladderTitle = entry.ladderTitle || '';";
+const TITLE_LOGIN_MARK = 'PATCH(白神服): 称号展示统一';
+const TITLE_LOGIN_TARGETS = [
+  { rel: 'dist/src/feats/login/login-service.js', ts: false },
+  { rel: 'src/feats/login/login-service.ts', ts: true },
+];
+let titleLoginChanged = 0;
+console.log('\n== 称号展示统一（/login 按主+副）补丁 ==');
+for (const t of TITLE_LOGIN_TARGETS) {
+  const file = path.join(ROOT, t.rel);
+  if (!fs.existsSync(file)) { console.log('  [跳过] ' + t.rel + ' 不存在'); continue; }
+  const s = fs.readFileSync(file, 'utf8');
+  if (s.includes(TITLE_LOGIN_MARK)) { console.log('  [已打过] ' + t.rel); continue; }
+  const m = s.match(new RegExp('( *)' + TITLE_LOGIN_OLD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  if (!m) { console.log('  [警告] ' + t.rel + ' 找不到锚点，请人工确认'); continue; }
+  const ind = m[1];
+  const sel = t.ts ? '(entry as any).selectedTitle' : 'entry.selectedTitle';
+  const sel2 = t.ts ? '(entry as any).selectedTitle2' : 'entry.selectedTitle2';
+  const block = [
+    '// PATCH(白神服): 称号展示统一 —— /login 也要按「官网选定主 + 副」',
+    ind + 'const _mainTitle = ' + sel + ' || entry.ladderTitle || \'\';',
+    ind + 'const _subTitle = ' + sel2 + ' || \'\';',
+    ind + 'client.ladderTitle = _subTitle ? `\${_mainTitle} · \${_subTitle}` : _mainTitle;',
+  ].join('\n' + ind);
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  fs.writeFileSync(file + '.bak-' + stamp, s);
+  fs.writeFileSync(file, s.replace(ind + TITLE_LOGIN_OLD, ind + block));
+  console.log('  [已打补丁] ' + t.rel + '（备份 .bak-' + stamp + '）');
+  titleLoginChanged++;
+}
+if (titleLoginChanged) {
+  console.log('\n== 称号展示：改了 ' + titleLoginChanged + ' 个文件 ==');
+  console.log('   下一步：pm2 restart srvpro2_siro:50010');
+}
