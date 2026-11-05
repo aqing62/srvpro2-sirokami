@@ -402,9 +402,13 @@ export class Room {
   private async sendPostWatchMessages(client: Client) {
     await client.send(new YGOProStocDuelStart());
 
+    // PATCH(白神服) 2026-11-03: 观战者进房时把**当前这一局**已发生的消息也补发一遍，
+    //   否则观战只能看到进房之后的动作（用户实测：bbw 明明先手发动了成金哥布林，
+    //   观战里根本没这一段）。玩家重连仍按原逻辑只补历史局（避免重放当前局把已恢复的场面冲掉）。
+    const isWatcher = client.pos === NetPlayerType.OBSERVER;
     const previousDuels =
       this.duelStage === DuelStage.Dueling
-        ? this.duelRecords.slice(0, -1)
+        ? (isWatcher ? this.duelRecords : this.duelRecords.slice(0, -1))
         : this.duelRecords;
     if (previousDuels.length) {
       for (const duelRecord of previousDuels) {
@@ -1010,6 +1014,12 @@ export class Room {
       return;
     }
 
+    // 随机匹配房（M#）不允许房主踢人：没准备的一方交给超时机制自动请出
+    if (this.randomType || /^M#/.test(this.name || '')) {
+      await this.sendChat('随机匹配房间不能踢人：没准备的一方会在倒计时结束后被系统自动请出。');
+      return;
+    }
+
     // 获取要踢的玩家
     const targetPlayer = this.players[msg.pos];
     if (!targetPlayer) {
@@ -1022,6 +1032,21 @@ export class Room {
 
   @RoomMethod({ allowInDuelStages: [DuelStage.Begin, DuelStage.Siding] })
   private async onUpdateDeck(client: Client, msg: YGOProCtosUpdateDeck) {
+    // PATCH(白神服) 2026-11-03: 天梯房（随机匹配 M… / 手动 M#…）必须登录官网账号才能准备，
+    // 否则未登录玩家可以先准备、开局后才提示「不计分」，体验很怪。
+    if (
+      this.duelStage === DuelStage.Begin &&
+      (this.randomType || /^M#/.test(this.name || '')) &&
+      !client.loggedIn
+    ) {
+      await client.sendChat(
+        '⚠️ 天梯房（随机匹配 / M#）需要先登录官网账号才能准备',
+        ChatColor.RED,
+      );
+      await client.send(client.prepareChangePacket());
+      return;
+    }
+
     // 只有玩家可以更新卡组
     if (client.pos === NetPlayerType.OBSERVER) {
       return;
