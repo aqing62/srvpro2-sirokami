@@ -1189,13 +1189,13 @@ export class LadderService {
    *  6. 双方不是同一账号、且不在同一 IP 下
    */
   getLadderEligibility(room: Room): {
-    // PATCH(白神服) 2026-11-05: 补 logger（下方 log() 用了裸 logger，会抛 ReferenceError → 卡准备）
-    const logger = this.ctx.createLogger('LadderEligibility');
     ok: boolean;
     reason: string;
     p0?: Client;
     p1?: Client;
   } {
+    // PATCH(白神服) 2026-11-05: 补 logger（下方 log() 用了裸 logger，会抛 ReferenceError → 卡准备）
+    const logger = this.ctx.createLogger('LadderEligibility');
     if (!this.isMatchRoom(room)) {
       return { ok: false, reason: '只有「随机匹配」房计分（约房 M# 不计分）' };
     }

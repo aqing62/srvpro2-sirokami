@@ -413,7 +413,7 @@ export class Room {
     if (previousDuels.length) {
       for (const duelRecord of previousDuels) {
         for (const message of duelRecord.toPlayback((msg) =>
-          msg.observerView(),
+          this.observerViewForWatchers(msg),
         )) {
           await client.send(message);
         }
@@ -434,7 +434,7 @@ export class Room {
     } else if (this.duelStage === DuelStage.Dueling) {
       // Dueling 阶段不发 DeckCount，直接发送观战消息
       for (const message of this.lastDuelRecord?.toPlayback((msg) =>
-        msg.observerView(),
+        this.observerViewForWatchers(msg),
       ) || []) {
         await client.send(message);
       }
@@ -1427,6 +1427,7 @@ export class Room {
   }
   phase: number | undefined = undefined;
   timerState = new TimerState();
+  private timeBroadcastTimer?: ReturnType<typeof setInterval>;
   lastResponseRequestMsg?: YGOProMsgResponseBase;
   isRetrying = false;
   private get hasTimeLimit() {
@@ -1442,7 +1443,30 @@ export class Room {
     this.isRetrying = false;
   }
 
+  private stopTimeBroadcast() {
+    if (this.timeBroadcastTimer) {
+      clearInterval(this.timeBroadcastTimer);
+      this.timeBroadcastTimer = undefined;
+    }
+  }
+
+  private startTimeBroadcast(originalDuelPos: number) {
+    this.stopTimeBroadcast();
+    if (!this.hasTimeLimit) {
+      return;
+    }
+    // 服务端每秒推送一次真实剩余时间；前端只显示，不再自行倒计时。
+    this.timeBroadcastTimer = setInterval(() => {
+      if (this.finalizing || this.timerState.runningPos !== originalDuelPos) {
+        return;
+      }
+      void this.sendTimeLimit(originalDuelPos).catch(() => {});
+    }, 1000);
+    this.timeBroadcastTimer.unref?.();
+  }
+
   private clearResponseTimer(settleElapsed = false) {
+    this.stopTimeBroadcast();
     this.timerState.clear(settleElapsed);
   }
 
@@ -1485,7 +1509,14 @@ export class Room {
     if (!this.hasTimeLimit || ![0, 1].includes(originalDuelPos)) {
       return;
     }
-    const leftTime = Math.max(0, this.timerState.leftMs[originalDuelPos] || 0);
+    const runningElapsed =
+      this.timerState.runningPos === originalDuelPos
+        ? this.timerState.elapsedMs()
+        : 0;
+    const leftTime = Math.max(
+      0,
+      (this.timerState.leftMs[originalDuelPos] || 0) - runningElapsed,
+    );
     const ingameDuelPos = this.getIngameDuelPosByDuelPos(originalDuelPos);
     const msg = new YGOProStocTimeLimit().fromPartial({
       player: ingameDuelPos,
@@ -1539,6 +1570,7 @@ export class Room {
         this.logger.warn({ error }, 'Failed to handle response timeout');
       });
     });
+    this.startTimeBroadcast(originalDuelPos);
   }
 
   private async handleResetTime(message: YGOProMsgResetTime) {
@@ -1927,6 +1959,39 @@ export class Room {
     );
   }
 
+
+  /** PATCH(白神服) 2026-11-07: 观战视角补回被抹掉的卡号（检索/加入手牌看不到卡名） */
+  /** PATCH(白神服) 2026-11-07: 对手视角下「检索/回收/除外」类 Move 要能看到卡名（盲抽仍隐藏） */
+  viewForOpponent(message: YGOProMsgBase, playerView: any): any {
+    try {
+      if (message && message.constructor && message.constructor.name === 'YGOProMsgMove') {
+        const prev: any = (message as any).previous || {};
+        const pl = (prev.location | 0) & 0x7f;
+        if (pl === 1 || pl === 16 || pl === 32) {
+          const v = this.observerViewForWatchers(message) as any;
+          if (v && typeof v.code === 'number' && v.code > 0) return v;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return playerView.teammateView();
+  }
+
+  observerViewForWatchers(message: YGOProMsgBase): YGOProMsgBase {
+    try {
+      const base = message.observerView();
+      if (!base || (message as any).code !== 0) return base;
+      for (const dp of [0, 1] as const) {
+        try {
+          const v = (message as any).playerView && (message as any).playerView(dp);
+          if (v && typeof v.code === 'number' && v.code > 0) return v;
+        } catch (e) { /* ignore */ }
+      }
+      return base;
+    } catch (e) {
+      return message.observerView();
+    }
+  }
+
   private async routeGameMsg(
     message: YGOProMsgBase,
     options: { sendToClient?: MayBeArray<Client> } = {},
@@ -1949,7 +2014,7 @@ export class Room {
     await Promise.all(
       sendTargets.map(async (pos) => {
         if (pos === NetPlayerType.OBSERVER) {
-          const observerView = message.observerView();
+          const observerView = this.observerViewForWatchers(message);
           await Promise.all(
             [...this.watchers].map((w) => sendGameMsg(w, observerView)),
           );
@@ -1971,7 +2036,7 @@ export class Room {
               }
               return sendGameMsg(
                 c,
-                c === operatingPlayer ? playerView : playerView.teammateView(),
+                c === operatingPlayer ? playerView : this.viewForOpponent(message, playerView),
               );
             }),
           );
@@ -2293,6 +2358,9 @@ export class Room {
       createTime: this.createTime,
       watcherCount: this.watchers.size,
       players: this.playingPlayers.map((p) => ({
+        // PATCH(白神服) 2026-11-05: 网页观战需要账号/显示名（昵称常和账号不一致）
+        accountName: (p as any).accountName || '',
+        displayName: (p as any).displayName || '',
         name: p.name,
         pos: p.pos,
         ip: p.ip,

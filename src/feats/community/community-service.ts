@@ -925,6 +925,69 @@ export class CommunityService {
       };
     });
 
+    // ═══════════════════════════════════════════
+    // GET /api/forum/replay/:id — 回放查看器数据（消息 hex + 玩家）
+    // ═══════════════════════════════════════════
+    this.ctx.router.get('/api/forum/replay/:id', async (koaCtx) => {
+      const database = db();
+      if (!database) {
+        koaCtx.status = 500;
+        koaCtx.body = { error: 'database unavailable' };
+        return;
+      }
+      const id = Number(koaCtx.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        koaCtx.status = 400;
+        koaCtx.body = { error: 'invalid replay id' };
+        return;
+      }
+      const repo = database.getRepository(DuelRecordEntity);
+      const replay = await repo.findOne({
+        where: { id: id as any },
+        relations: { players: true },
+      });
+      if (!replay) {
+        koaCtx.status = 404;
+        koaCtx.body = { error: 'replay not found' };
+        return;
+      }
+      const duelRecord = replay.toDuelRecord();
+      const messages: any[] = [];
+      for (const wrapper of duelRecord.toPlayback()) {
+        // toPlayback 返回 YGOProStocGameMsg 包装层；查看器要的是里面真正的
+        // YGOProMsgXxx（hex 从消息 id 开始，不能带 STOC_GAME_MSG 外层 0x14）
+        const msg: any = (wrapper as any).msg || wrapper;
+        let payload: Uint8Array;
+        try {
+          payload = msg.toFullPayload();
+        } catch (e) {
+          payload = msg.toPayload();
+        }
+        const hex = Buffer.from(payload).toString('hex');
+        let f: any = {};
+        try { f = JSON.parse(JSON.stringify(msg)); } catch (e) {}
+        messages.push({
+          name: msg.constructor.name.replace(/^YGOProMsg/, ''),
+          hex,
+          len: hex.length / 2,
+          f,
+        });
+      }
+      koaCtx.body = {
+        roomName: replay.name,
+        players: (replay.players || [])
+          .slice()
+          .sort((a, b) => a.pos - b.pos)
+          .map((p) => ({
+            name: p.name,
+            pos: p.pos,
+            isFirst: !!p.isFirst,
+            winner: !!p.winner,
+          })),
+        messages,
+      };
+    });
+
   }
 }
 
