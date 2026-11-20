@@ -187,6 +187,11 @@ export class LegacyApiService {
               pos: member.pos,
               deck: member.deck || null,
               loggedIn: (member as any).loggedIn ?? false,
+              // PATCH(白神服) 2026-11-08: 已准备 = 已上传卡组
+              ready: !!(member as any).deck,
+              // PATCH(白神服) 2026-11-05: 网页观战需要账号/显示名（昵称和账号常常不一致）
+              accountName: (member as any).accountName || '',
+              displayName: (member as any).displayName || '',
             }));
           return {
             roomid: this.roomIdService.getRoomIdString(info.identifier),

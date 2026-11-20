@@ -117,6 +117,9 @@ export class Reconnect {
       if (await this.tryPreReconnect(client)) {
         return; // 进入 pre_reconnect 状态
       }
+      // PATCH(白神服) 2026-11-01: 重连没匹配上时，先清掉同身份（同名/同账号）的旧连接，
+      // 否则「客户端强杀→立刻重进」会看到房间里还有自己的假身，进不去 / 出现两个自己。
+      await this.kickDuplicateSessions(client);
       return next(); // 正常加入流程
     });
 
@@ -183,6 +186,33 @@ export class Reconnect {
       this.disconnectListByRoomName.set(room.name, keySet);
     }
     keySet.add(key);
+  }
+
+  /**
+   * PATCH(白神服) 2026-11-01
+   * 同一身份（clientKey：游客/比赛模式下就是玩家名）之前若还有连接挂在某个房间里，
+   * 说明那是被强杀/切网留下的半开连接 —— 直接断掉它，让新连接正常占位。
+   */
+  private async kickDuplicateSessions(newClient: Client): Promise<void> {
+    const key = this.clientKeyProvider.getClientKey(newClient);
+    if (!key || key === 'undefined') return;
+    const roomManager = this.ctx.get(() => RoomManager);
+    const rooms = roomManager.allRooms();
+    for (const room of rooms) {
+      for (const other of room.players) {
+        if (!other || other === newClient) continue;
+        if (this.clientKeyProvider.getClientKey(other) !== key) continue;
+        try {
+          await other.sendChat(
+            '⚠️ 同一身份在另一处重新加入了房间，本连接已断开',
+            ChatColor.RED,
+          );
+        } catch {
+          /* 发送失败不影响踢人 */
+        }
+        other.disconnect();
+      }
+    }
   }
 
   private async tryPreReconnect(newClient: Client): Promise<boolean> {

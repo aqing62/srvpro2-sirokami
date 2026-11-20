@@ -83,7 +83,9 @@ export class DefaultHostInfoProvider {
     };
 
     const namePrefixMatch = name.match(/(.+)#/);
-    const namePrefixRaw = namePrefixMatch ? namePrefixMatch[1] : '';
+    // PATCH(白神服) 2026-11-03: 房名没有 '#' 时（例如只叫 "C"），把整个房名当成房间代码，
+    // 否则 parseHostinfo 会直接返回默认 hostinfo，C 模式（随机卡组）等代码全部失效。
+    const namePrefixRaw = namePrefixMatch ? namePrefixMatch[1] : name.trim();
     const namePrefix = namePrefixRaw.toUpperCase();
 
     if (namePrefix === 'M') {
@@ -185,7 +187,7 @@ export class DefaultHostInfoProvider {
       mode: setWinMatchCountBits(hostinfo.mode, 2),
     }))
       .registerRoomMode('D', ({ hostinfo }) => ({
-        mode: setWinMatchCountBits(hostinfo.mode, 2),
+        mode: setWinMatchCountBits(hostinfo.mode, 1),
       }))
       .registerRoomMode('C', () => ({
         no_check_deck: 1,

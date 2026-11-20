@@ -36,6 +36,12 @@ export class TcpServer {
   }
 
   private handleConnection(socket: Socket): void {
+    // PATCH(白神服) 2026-11-01: 半开连接检测
+    //   客户端被强杀 / 手机切网时不会发 FIN，服务器会一直把它当成「还在房间里」→
+    //   重连进来就变成「两个自己」。开 TCP keepalive 让内核尽快发现死连接（配合
+    //   /etc/sysctl.d/99-siro-net.conf 的 tcp_keepalive_intvl / probes）。
+    socket.setNoDelay(true);
+    socket.setKeepAlive(true, 20000);
     socket.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'ECONNRESET') {
         this.logger.debug(

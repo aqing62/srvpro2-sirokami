@@ -675,7 +675,8 @@ export class LadderService {
         return;
       }
       try {
-        const result = await this.resetSeason();
+        // ?season=S4 可显式指定；不传就读官网写进 ygo_site_config.ladderSeason 的当前赛季
+        const result = await this.resetSeason(String(koaCtx.query.season || ''));
         koaCtx.body = result;
       } catch (err) {
         koaCtx.status = 500;
@@ -685,9 +686,85 @@ export class LadderService {
   }
 
   /**
-   * 新赛季重置：结算称号 → 清空积分 → 废弃全部比赛记录
+   * 解析赛季标识：优先用调用方显式传入的 ?season=，
+   * 其次读官网写进 ygo_site_config.ladderSeason 的当前赛季（官网 SEASON_NAME），
+   * 都没有就按年月兜底（如 S202611）。赛季名只需要在官网改一处。
    */
-  private async resetSeason(): Promise<{
+  private async resolveSeasonKey(explicit?: string): Promise<string> {
+    const given = String(explicit || '').trim();
+    if (given) return given.slice(0, 32);
+    try {
+      const rows = (await this.ctx.database.query(
+        `SELECT value FROM ygo_site_config WHERE key = 'ladderSeason' LIMIT 1`,
+      )) as Array<{ value?: string }>;
+      const value = String(rows?.[0]?.value || '').trim();
+      if (value) return value.slice(0, 32);
+    } catch {
+      /* 官网还没建配置表 → 用日期兜底，别让赛季重置失败 */
+    }
+    const d = new Date();
+    return `S${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * 赛季积分快照（官网「称号商店」的称号点来源）。
+   *
+   * 1 天梯积分 = 1 称号点；必须在清空 player_rating **之前**调用。
+   * 官网余额 = Σ这张表的 rating − Σ已消费，所以这里只写流水、不管余额。
+   * 幂等：同一赛季重复结算只更新数值，不会重复发点。
+   */
+  private async snapshotSeasonPoints(
+    season: string,
+    players: PlayerRating[],
+    cutoffs: { name: string; minRating: number }[],
+  ): Promise<number> {
+    const database = this.ctx.database;
+    if (!database) return 0;
+    await database.query(`
+      CREATE TABLE IF NOT EXISTS ygo_ladder_season_result (
+        season        varchar(32) NOT NULL,
+        "accountName" varchar(64) NOT NULL,
+        "displayName" varchar(64) NOT NULL DEFAULT '',
+        rating        integer     NOT NULL DEFAULT 0,
+        wins          integer     NOT NULL DEFAULT 0,
+        losses        integer     NOT NULL DEFAULT 0,
+        draws         integer     NOT NULL DEFAULT 0,
+        "totalDuels"  integer     NOT NULL DEFAULT 0,
+        tier          varchar(64) NOT NULL DEFAULT '',
+        "settledAt"   timestamp   NOT NULL DEFAULT now(),
+        PRIMARY KEY (season, "accountName")
+      )`);
+    let saved = 0;
+    for (const player of players) {
+      if (!player.accountName || player.rating <= 0) continue;
+      const tier = this.getTierName(player.rating, player.totalDuels, cutoffs) || '';
+      await database.query(
+        `INSERT INTO ygo_ladder_season_result
+           (season, "accountName", "displayName", rating, wins, losses, draws, "totalDuels", tier, "settledAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+         ON CONFLICT (season, "accountName") DO UPDATE SET
+           "displayName" = EXCLUDED."displayName",
+           rating        = EXCLUDED.rating,
+           wins          = EXCLUDED.wins,
+           losses        = EXCLUDED.losses,
+           draws         = EXCLUDED.draws,
+           "totalDuels"  = EXCLUDED."totalDuels",
+           tier          = EXCLUDED.tier,
+           "settledAt"   = now()`,
+        [season, player.accountName, player.displayName || '', player.rating,
+          player.wins, player.losses, player.draws, player.totalDuels, tier],
+      );
+      saved++;
+    }
+    return saved;
+  }
+
+  /**
+   * 新赛季重置：结算称号 → 记录赛季积分 → 清空积分 → 废弃全部比赛记录
+   */
+  private async resetSeason(seasonHint = ''): Promise<{
+    season: string;
+    seasonResults: number;
     titlesAssigned: number;
     ratingsCleared: number;
     recordsArchived: number;
@@ -699,6 +776,7 @@ export class LadderService {
     const ratingRepo = database.getRepository(PlayerRating);
     const userRepo = database.getRepository(User);
     const logger = this.ctx.createLogger('ResetSeason');
+    const season = await this.resolveSeasonKey(seasonHint);
 
     // 结算赛季称号：在清空积分前，为所有合格玩家写入 ladderTitle（不要求近期活跃）
     const cutoffs = await this.getTierCutoffs(false);
@@ -749,9 +827,14 @@ export class LadderService {
     }
     logger.info(`Assigned ladder titles to ${titlesAssigned} players`);
 
+    // ── 赛季积分快照（称号商店的称号点来源）：必须在清空积分之前 ──
+    //    只写所有人的最终积分流水，余额由官网从流水实时算，重复结算不会重复发点
+    const allPlayers = await ratingRepo.find();
+    const seasonResults = await this.snapshotSeasonPoints(season, allPlayers, cutoffs);
+    logger.info(`Saved ${seasonResults} season point results for ${season}`);
+
     // 清空积分
-    const ratings = await ratingRepo.find();
-    const ratingsCleared = ratings.length;
+    const ratingsCleared = allPlayers.length;
     await ratingRepo.clear();
     logger.info(`Cleared ${ratingsCleared} player_rating records`);
 
@@ -766,7 +849,7 @@ export class LadderService {
     const recordsArchived = result.affected || 0;
     logger.info(`Archived ${recordsArchived} duel records`);
 
-    return { titlesAssigned, ratingsCleared, recordsArchived };
+    return { season, seasonResults, titlesAssigned, ratingsCleared, recordsArchived };
   }
 
   /**

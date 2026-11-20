@@ -32,6 +32,9 @@ export class LoginService {
     // 进房自动登录：匹配 IP（优先查内存Map，兜底查DB）
     this.ctx.middleware(OnRoomJoin, async (_event, client, next) => {
       if (client.loggedIn) return next();
+      // PATCH(白神服): 人机（internal client）不参与自动登录，
+      // 否则 bot 从 127.0.0.1 进来会命中某个账号的 lastIp，顶着别人的名字/称号入房 ✗
+      if ((client as any).isInternal || (client as any).windbot) return next();
 
       const ip = client.ip;
       if (!ip || ip === 'unknown') return next();
@@ -175,7 +178,10 @@ export class LoginService {
       client.loggedIn = true;
       client.accountName = username;
       client.title = entry.title || '';
-      client.ladderTitle = entry.ladderTitle || '';
+// PATCH(白神服): 称号展示统一 —— /login 也要按「官网选定主 + 副」
+      const _mainTitle = (entry as any).selectedTitle || entry.ladderTitle || '';
+      const _subTitle = (entry as any).selectedTitle2 || '';
+      client.ladderTitle = _subTitle ? `${_mainTitle} · ${_subTitle}` : _mainTitle;
 
       this.recordAutoLoginIp(client, username);
 
@@ -197,6 +203,8 @@ export class LoginService {
 
     // 入房提示
     this.ctx.middleware(OnRoomJoin, async (_event, client, next) => {
+      // PATCH(白神服): 人机不提示「未登录」，也不播欢迎语
+      if ((client as any).isInternal || (client as any).windbot) return next();
       if (client.loggedIn) {
         const room = _event.room;
         const name = client.displayName || client.accountName;

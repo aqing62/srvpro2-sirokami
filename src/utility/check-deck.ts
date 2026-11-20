@@ -137,7 +137,16 @@ export const checkDeck = (
     cardCount.set(countCode, count);
 
     // Collect card code for lflist check
-    allCardCodes.push(countCode);
+    // 查分/查限的卡号：自己号在 lflist 里有分就用自己号，否则退回 countCode（别名/同名卡继承）
+        let lflistCode = code;
+        if (lflist) {
+            const genesys = lflist.creditLimits && lflist.creditLimits.find((c) => c.identifier === 'genesys');
+            const ownCredit = genesys && genesys.entries && genesys.entries.find((e) => e.code === code);
+            if (!(ownCredit && ownCredit.credit > 0)) {
+                lflistCode = countCode;
+            }
+        }
+        allCardCodes.push(lflistCode);
 
     // Check max copies
     if (count > maxCopies) {

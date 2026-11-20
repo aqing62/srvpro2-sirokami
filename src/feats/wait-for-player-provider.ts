@@ -40,6 +40,8 @@ declare module '../room' {
     waitForPlayerReadyWarnRemain?: number;
     waitForPlayerReadyTargetPos?: number;
     waitForPlayerHangWarnElapsed?: number;
+    waitForAllUnreadyDeadlineMs?: number;
+    waitForAllUnreadyWarnRemain?: number;
   }
 }
 
@@ -352,6 +354,63 @@ export class WaitForPlayerProvider {
     return unreadyPlayers[0];
   }
 
+  // 满人且「所有人都没准备」→ 倒计时后解散房间（原逻辑只处理“恰好一人没准备”）
+  private async tickAllUnreadyDissolve(
+    room: Room,
+    nowMs: number,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    if (timeoutMs <= 0) {
+      room.waitForAllUnreadyDeadlineMs = undefined;
+      return false;
+    }
+    const players = room.playingPlayers;
+    const required = room.randomDuelMaxPlayer || room.players.length;
+    const unready = players.filter((player) => !player.deck);
+    const allUnready =
+      players.length >= required && unready.length > 0 && unready.length === players.length;
+    if (!allUnready) {
+      room.waitForAllUnreadyDeadlineMs = undefined;
+      room.waitForAllUnreadyWarnRemain = undefined;
+      return false;
+    }
+    if (!room.waitForAllUnreadyDeadlineMs) {
+      room.waitForAllUnreadyDeadlineMs = nowMs + timeoutMs;
+      const seconds = Math.round(timeoutMs / 1000);
+      await room.sendChat(
+        `本局 ${seconds} 秒后开始：请双方准备，${seconds} 秒内双方都未准备将解散房间。`,
+        ChatColor.LIGHTBLUE,
+      );
+      return true;
+    }
+    const remainSeconds = Math.ceil(
+      (room.waitForAllUnreadyDeadlineMs - nowMs) / 1000,
+    );
+    if (remainSeconds > 0) {
+      if (
+        remainSeconds % 5 === 0 &&
+        room.waitForAllUnreadyWarnRemain !== remainSeconds
+      ) {
+        room.waitForAllUnreadyWarnRemain = remainSeconds;
+        await room.sendChat(
+          `还剩 ${remainSeconds} 秒：双方都未准备将解散房间。`,
+          remainSeconds <= 9 ? ChatColor.RED : ChatColor.LIGHTBLUE,
+        );
+      }
+      return true;
+    }
+    await room.sendChat('双方均未准备，房间已解散。', ChatColor.RED);
+    room.waitForAllUnreadyDeadlineMs = undefined;
+    room.waitForAllUnreadyWarnRemain = undefined;
+    for (const player of players.slice()) {
+      try {
+        player.disconnect();
+      } catch (error) {
+        void error;
+      }
+    }
+    return true;
+  }
   private async tickReadyTimeout(
     runtime: WaitForPlayerTickRuntime,
     room: Room,
@@ -365,6 +424,16 @@ export class WaitForPlayerProvider {
       return;
     }
 
+    // 满人 + 双方都没准备 → 走解散流程
+    if (
+      await this.tickAllUnreadyDissolve(
+        room,
+        nowMs,
+        runtime.options.readyTimeoutMs,
+      )
+    ) {
+      return;
+    }
     const target = this.getReadyTimeoutTarget(room);
     if (!target) {
       this.clearReadyState(room);

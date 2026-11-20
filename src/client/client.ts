@@ -110,7 +110,14 @@ export class Client {
     if (this.roomName) {
       const room = this.ctx.get(() => RoomManager).findByName(this.roomName);
       if (room) {
-        room.removePlayer(this, true);
+        // PATCH(白神服) 2026-11-14: 对局中掉线不要立刻移除玩家
+        //   （旧逻辑 removePlayer(..., true) 会绕过 Reconnect 特性，直接判负 -9）
+        //   交给 Reconnect 走宽限：RECONNECT_TIMEOUT 内重连回来就继续打，
+        //   超时由 reconnect 特性补发 byReconnectTimeout 的断线，再正常判负。
+        const inDuel = !!(room as any).ocgcore;
+        if (!inDuel) {
+          room.removePlayer(this, true);
+        }
       }
     }
     this.disconnectSubject.next();
